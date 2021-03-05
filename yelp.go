@@ -1,98 +1,117 @@
 package main
 
 import (
-  "encoding/json"
-  "strconv"
-  "fmt"
-  "log"
-  "os"
-  "github.com/gocolly/colly/v2"
+    "fmt"
+    "strings"
+    "encoding/json"
+    "github.com/gocolly/colly/v2"
+    "io"
+    "os"
+    "io/ioutil"
+    "net/http"
+    "crypto/tls"
+    "net/url"
+    "encoding/base64"
+    "crypto/x509"
 )
 
+const auth = "65c0f90ccf854cb5874088f30da2d82c:"
+
+// Review stores information about a review
+type Review struct {
+    Author_name, Text, Posted_at, Review_id string
+    Not_recommended bool
+}
 
 func main() {
-  fName := "resultm.json"
-  file, err := os.Create(fName)
-  if err != nil {
-    log.Fatalf("Cannot create file %q: %s\n", fName, err)
-    return
-  }
-  defer file.Close()
-  var result map[string]interface{}
-  var cout = 0
-  var stopFlag = true
-  // Instantiate default collector
-  // export $HTTP_PROXY = "65c0f90ccf854cb5874088f30da2d82c:@odmarkj.crawlera.com:8010"
-  c := colly.NewCollector(
-    // Visit only domains: coursera.org, www.coursera.org
-    colly.AllowedDomains("yelp.com", "www.yelp.com"),
+    // create collector
+    c := colly.NewCollector(
+        colly.AllowedDomains("yelp.com", "www.yelp.com"),
+    )
 
-    // Cache responses to prevent multiple download of pages
-    // even if the collector is restarted
-    // colly.CacheDir("./coursera_cache"),
-  )
-  // fixedURL, err:= url.Parse("65c0f90ccf854cb5874088f30da2d82c@odmarkj.crawlera.com:8010")
-  // if err != nil {
-  // panic(err)
-  // }
-  // c.SetProxyFunc(http.ProxyURL(fixedURL))
-  // c.WithTransport(&http.Transport{
-  //   Proxy: http.ProxyURL(fixedURL),
-  //   DialContext: (&net.Dialer{
-  //     Timeout:   30 * time.Second,
-  //     KeepAlive: 30 * time.Second,
-  //     DualStack: true,
-  //   }).DialContext,
-  //   MaxIdleConns:          100,
-  //   IdleConnTimeout:       90 * time.Second,
-  //   TLSHandshakeTimeout:   10 * time.Second,
-  //   ExpectContinueTimeout: 1 * time.Second,
-  // })
-  // Create another collector
-  detailCollector := c.Clone()
+    // create reviews array to store review data
+    reviews := make([]Review, 0, 200)
 
-  c.OnRequest(func(r *colly.Request) {
-        fmt.Println("Visiting", r.URL)
-    })
+    // set proxy url
+    proxy := "http://odmarkj.crawlera.com:8010"
+    proxyURL, err := url.Parse(proxy)
+    checkError(err)
+    
+    //caCert for ssl certification
+    caCert, err := ioutil.ReadFile("zyte-proxy-ca.crt")
+    caCertPool := x509.NewCertPool()
+    caCertPool.AppendCertsFromPEM(caCert)
+    checkError(err)
 
-    c.OnHTML("meta", func(e *colly.HTMLElement) {
-        // id = e.Attr("content")
-    if e.Attr("name") == "yelp-biz-id"{
-      stopFlag = true
-      for stopFlag {
-        detailCollector.Visit("https://www.yelp.com/biz/nR2dFrY7VnYzJ1gtdkA5mw/review_feed?rl=en&sort_by=relevance_desc&q=&start="+ strconv.Itoa(cout))
-        cout = cout + 20
-      }
+    // encode the auth
+    basic := "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
+
+    // create transport for set proxy and certificate
+    transport := &http.Transport{
+        Proxy: http.ProxyURL(proxyURL),
+        TLSClientConfig: &tls.Config{
+            RootCAs:      caCertPool,
+        },
     }
+
+    // pass transport to collector
+    c.WithTransport(transport)
+
+    // Find and get review data
+    c.OnHTML(`div.not-recommended-reviews > ul.reviews > li`, func(e *colly.HTMLElement) {
+        url := e.Attr("href") 
+        result := strings.Contains(url, "removed_start=")
+        if (!result) {
+            e.Request.Visit(url)
+        }
+        author_name := e.ChildText("div.review-sidebar .user-display-name")
+        text := e.ChildText("div.review-wrapper div.review-content p")
+        posted_at := e.ChildText("div.review-wrapper div.review-content .rating-qualifier")
+        review_id := e.ChildAttr("div.review--with-sidebar", "data-review-id")
+
+        review := Review {
+            Review_id: review_id,
+            Author_name: author_name,
+            Text: text,
+            Posted_at: posted_at,
+            Not_recommended: true,
+        }
+
+        reviews = append(reviews, review)
     })
 
-    c.OnScraped(func(r *colly.Response) { 
-        // data, err := json.Marshal(result)
-        // if err != nil {
-        //     fmt.Println(err)
-        // } else {
-        //     fmt.Println("Finished. Here is your data:", string(data))
-        // }
+    // Find and visit all next page links
+    c.OnHTML("a.next", func(e *colly.HTMLElement) {
+        url := e.Attr("href") 
+        result := strings.Contains(url, "removed_start=")
+        if (!result) {
+            e.Request.Visit(url)
+        }
+    })
+    
+    // pass some headers in request
+    c.OnRequest(func(r *colly.Request) {
+        fmt.Println("Visiting", r.URL)
+        r.Headers.Set("Proxy-Authorization", basic)
+        r.Headers.Set("X-Crawlera-Profile", "desktop")
     })
 
-  // Before making a request print "Visiting ..."
-  c.OnRequest(func(r *colly.Request) {
-    log.Println("visiting", r.URL.String())
-  })
+    // request start page url 
+    c.Visit("https://www.yelp.com/not_recommended_reviews/home-alarm-authorized-adt-dealer-lemon-grove")
 
-  // Extract details
-  detailCollector.OnResponse(func(res *colly.Response) {
-    err := json.Unmarshal(res.Body, &result) 
-    fmt.Printf("result: %+v", result["pagination"])
-    fmt.Printf("rrr: %+v", err)
-  })
+    enc := json.NewEncoder(os.Stdout)
+    enc.SetIndent("", "  ")
 
-  // Start scraping
-  c.Visit("https://www.yelp.com/biz/home-alarm-authorized-adt-dealer-lemon-grove")
+    // Dump json to the standard output
+    enc.Encode(reviews)
+}
 
-  enc := json.NewEncoder(file)
-  enc.SetIndent("", "  ")
-
-  // Dump json to the standard output
-  enc.Encode(result)
+func checkError(err error) {
+    if err != nil {
+        if err == io.EOF {
+            return
+        }
+        fmt.Println("Fatal error ", err.Error())
+        os.Exit(1)
+    }
 }

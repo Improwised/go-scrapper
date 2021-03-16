@@ -4,20 +4,18 @@ import (
 	"fmt"
 )
 
-type P struct {
-	Age int
-}
-
-func (me *P) SetAge(n int) {
-	me.Age = n
-}
-
-type C struct{
-	P
+func sum(nums ...int) {
+    var s = 0
+    for _, n := range nums {
+        s = s + n
+        fmt.Println(n)
+    }
+    fmt.Printf("Final = %d\n", s)
 }
 
 func main() {
-	child := C{}
-	child.SetAge(10)
-	fmt.Println(child)
+
+    var arr = []int{1,3,4}
+
+    sum(arr...)
 }

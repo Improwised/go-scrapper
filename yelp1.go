@@ -3,6 +3,7 @@ package main
 import (
     "fmt"
     "log"
+    "time"
     "strings"
     "encoding/json"
     "github.com/gocolly/colly/v2"
@@ -26,7 +27,6 @@ type Reviews struct {
 
 type Comments struct {
     Text string `json:"text"`
-    language string
 }
 
 type User struct {
@@ -52,10 +52,33 @@ type Review struct {
     Author_id string `json:"userId"`
     Review_id string `json:"id"`
     Source_date string `json:"localizedDate"`
-    Author_name User `json:"user"`
+    User User `json:"user"`
     Scraped_at, Posted_at int64
     OwnerReply OwnerReply `json:"businessOwnerReplies"`
     PreviousReview PreviousReview `json:"previousReviews"`
+}
+
+// structure for owner response for review
+type OwnerReplyFomate struct {
+    Author_name, Text string
+    Posted_at string
+}
+
+// structure for previous review
+type PreviousReviewFomate struct {
+    Text string
+    Rating int
+    Posted_at int64
+}
+
+// Review stores information about a review
+// Review stores information about a review
+type ReviewFomate struct {
+    Author_name, Text, Source_date, Review_id, Author_id, Photos string
+    Rating int
+    Scraped_at, Posted_at int64
+    OwnerReply OwnerReplyFomate
+    PreviousReview PreviousReviewFomate
 }
 
 func main() {
@@ -88,32 +111,12 @@ func main() {
             RootCAs:      caCertPool,
         },
     }
-    // create reviews array to store review data
-    // reviews := []Review{}
+    
     // pass transport to collector
     c.WithTransport(transport)
 
-    // // Find and get review data
-    // c.OnHTML(`div.not-recommended-reviews > ul.reviews > li`, func(e *colly.HTMLElement) {
-       
-    //     // review := Review {
-    //     //     Review_id: review_id,
-    //     //     Author_id: author_id,
-    //     //     Author_name: author_name,
-    //     //     Text: text,
-    //     //     Rating: rating,
-    //     //     Source_date: source_date,
-    //     //     Not_recommended: true,
-    //     //     Photos: photos,
-    //     //     Posted_at: int64(posted_at.Unix()),
-    //     //     Scraped_at: int64(time.Now().Unix()),
-    //     // }
-        
-    //     reviews = append(reviews, review)
-    // })
-
-    // Custom User-Agent and allowed domains are cloned to c2
-    c2 := c.Clone()
+    // create reviews array to store review data
+    reviewformate := []ReviewFomate{}
 
     // Find and visit all next page links
     c.OnHTML("html", func(e *colly.HTMLElement) {
@@ -132,24 +135,36 @@ func main() {
         err := json.Unmarshal(body, &reviews) 
   
         if err != nil { 
-      
-            // if error is not nil 
-            // print error 
             fmt.Println(err) 
         }
-        // reviews = append(reviews, review)
-        // parsePage(url, d, basic)
-        // url := e.Attr("href") 
-        // result := strings.Contains(url, "removed_start=")
-        // if (!result) {
-        //     e.Request.Visit(url)
-        // }
-        // url = "https://www.yelp.com/biz/nR2dFrY7VnYzJ1gtdkA5mw/review_feed?rl=en&sort_by=date_desc"
-        // e.Request.Visit(url)
-    })
+        
+        for _, obj := range reviews.Reviews {
+            fmt.Println(obj)
+            // fmt.Println(obj.User.Author_name)
 
-    c2.OnResponse(func(r *colly.Response) {
-        log.Println("resp")
+            posted_at, err := time.Parse("1/2/2006", obj.Source_date)
+            checkError(err)
+
+            review := ReviewFomate {
+                Review_id: obj.Review_id,
+                Author_id: obj.Author_id,
+                Author_name: obj.User.Author_name,
+                Text: obj.Comment.Text,
+                Rating: obj.Rating,
+                Source_date: obj.Source_date,
+                Photos: obj.Photos,
+                Posted_at: int64(posted_at.Unix()),
+                Scraped_at: int64(time.Now().Unix()),
+            }
+
+            reviewformate = append(reviewformate, review)
+        }
+
+        enc := json.NewEncoder(os.Stdout)
+        enc.SetIndent("", "  ")
+
+        // Dump json to the standard output
+        enc.Encode(reviewformate)
     })
 
     c.Request(
@@ -164,12 +179,6 @@ func main() {
     c.OnError(func(r *colly.Response, e error) {
         log.Println("error:", e, r.Request.URL, string(r.Body))
     })
-
-    // enc := json.NewEncoder(os.Stdout)
-    // enc.SetIndent("", "  ")
-
-    // // Dump json to the standard output
-    // enc.Encode(reviews)
 }
 
 // func parsePage(u string, de collector, basic string) {

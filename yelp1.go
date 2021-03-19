@@ -25,60 +25,46 @@ type Reviews struct {
     Reviews []Review `json:"reviews"`
 }
 
-type Comments struct {
-    Text string `json:"text"`
-}
-
-type User struct {
-    Author_name string `json:"markupDisplayName"`
-}
-
-type OwnerReply []struct {
-    Author_name string `json:"displayName"` 
-    Text string `json:"comment"`
-    Source_date string `json:"localizedDate"`
-}
-
-type PreviousReview []struct {
-    Comment Comments
-    Rating int `json:"rating"`
-    Source_date string `json:"localizedDate"`
-}
-
 type Review struct {
-    Comment Comments
+    Comment struct {
+        Text string `json:"text"`
+    }
     Rating int
     Photos string `json:"photosUrl"`
     Author_id string `json:"userId"`
     Review_id string `json:"id"`
     Source_date string `json:"localizedDate"`
-    User User `json:"user"`
+    User struct {
+        Author_name string `json:"markupDisplayName"`
+    } `json:"user"`
     Scraped_at, Posted_at int64
-    OwnerReply OwnerReply `json:"businessOwnerReplies"`
-    PreviousReview PreviousReview `json:"previousReviews"`
+    OwnerReply []struct {
+        Author_name string `json:"displayName"` 
+        Text string `json:"comment"`
+        Source_date string `json:"localizedDate"`
+    } `json:"businessOwnerReplies"`
+    PreviousReview []struct {
+        Comment struct {
+            Text string `json:"text"`
+        }
+        Rating int `json:"rating"`
+        Source_date string `json:"localizedDate"`
+    } `json:"previousReviews"`
 }
 
-// structure for owner response for review
-type OwnerReplyFomate struct {
-    Author_name, Text string
-    Posted_at string
-}
-
-// structure for previous review
-type PreviousReviewFomate struct {
-    Text string
-    Rating int
-    Posted_at int64
-}
-
-// Review stores information about a review
 // Review stores information about a review
 type ReviewFomate struct {
     Author_name, Text, Source_date, Review_id, Author_id, Photos string
     Rating int
     Scraped_at, Posted_at int64
-    OwnerReply OwnerReplyFomate
-    PreviousReview PreviousReviewFomate
+    OwnerReply struct {
+        Author_name, Text, Posted_at string
+    }
+    PreviousReview struct {
+        Text string
+        Rating int
+        Posted_at int64
+    }
 }
 
 func main() {
@@ -86,9 +72,6 @@ func main() {
     c := colly.NewCollector(
         colly.AllowedDomains("yelp.com", "www.yelp.com"),
     )
-    
-    // // create reviews array to store review data
-    // reviews := []Review{}
 
     // set proxy url
     proxy := "http://odmarkj.crawlera.com:8010"
@@ -115,85 +98,77 @@ func main() {
     // pass transport to collector
     c.WithTransport(transport)
 
-    // create reviews array to store review data
-    reviewformate := []ReviewFomate{}
-
     // Find and visit all next page links
     c.OnHTML("html", func(e *colly.HTMLElement) {
-        // d := c.Clone()
-        fmt.Println("helo")
-        var reviews Reviews
+        d := c.Clone()
+
+        d.OnResponse(func(r *colly.Response) {
+            data := &Reviews{}
+            err := json.Unmarshal(r.Body, data)
+            checkError(err)
+            scrapReviews(data)
+        })
+
+        d.OnError(func(r *colly.Response, e error) {
+            fmt.Println(e)
+        })
+
+        // pass some headers in request
+        d.OnRequest(func(r *colly.Request) {
+            fmt.Println("Visiting", r.URL)
+            r.Headers.Set("Proxy-Authorization", basic)
+            r.Headers.Set("X-Crawlera-Profile", "desktop")
+        })
+
         business_id := strings.Split(e.ChildAttr("meta[name=\"yelp-biz-id\"]", "content"), "\n")[0]
         url := "https://www.yelp.com/biz/" + business_id + "/review_feed?rl=en&sort_by=date_desc"
-        req, _ := http.NewRequest("GET", url, nil)
-        req.Header.Set("Proxy-Authorization", basic)
-        req.Header.Set("X-Crawlera-Profile", "desktop")
-        res, _ := http.DefaultClient.Do(req) 
-        defer res.Body.Close()
-        body, _ := ioutil.ReadAll(res.Body)
-        // fmt.Println(string(body))
-        err := json.Unmarshal(body, &reviews) 
-  
-        if err != nil { 
-            fmt.Println(err) 
-        }
-        
-        for _, obj := range reviews.Reviews {
-            fmt.Println(obj)
-            // fmt.Println(obj.User.Author_name)
-
-            posted_at, err := time.Parse("1/2/2006", obj.Source_date)
-            checkError(err)
-
-            review := ReviewFomate {
-                Review_id: obj.Review_id,
-                Author_id: obj.Author_id,
-                Author_name: obj.User.Author_name,
-                Text: obj.Comment.Text,
-                Rating: obj.Rating,
-                Source_date: obj.Source_date,
-                Photos: obj.Photos,
-                Posted_at: int64(posted_at.Unix()),
-                Scraped_at: int64(time.Now().Unix()),
-            }
-
-            reviewformate = append(reviewformate, review)
-        }
-
-        enc := json.NewEncoder(os.Stdout)
-        enc.SetIndent("", "  ")
-
-        // Dump json to the standard output
-        enc.Encode(reviewformate)
+        d.Visit(url)
     })
 
-    c.Request(
-        "GET",
-        "https://www.yelp.com/biz/home-alarm-authorized-adt-dealer-lemon-grove",
-        nil,
-        nil,
-        http.Header{"Proxy-Authorization": []string{basic},
-            "X-Crawlera-Profile": []string{"desktop"},
-        })
+    // pass some headers in request
+    c.OnRequest(func(r *colly.Request) {
+        fmt.Println("Visiting", r.URL)
+        r.Headers.Set("Proxy-Authorization", basic)
+        r.Headers.Set("X-Crawlera-Profile", "desktop")
+    })
+
+    // request start page url 
+    c.Visit("https://www.yelp.com/biz/home-alarm-authorized-adt-dealer-lemon-grove")
 
     c.OnError(func(r *colly.Response, e error) {
         log.Println("error:", e, r.Request.URL, string(r.Body))
     })
 }
 
-// func parsePage(u string, de collector, basic string) {
-//     de.Visit(u)
-//     // pass some headers in request
-//     de.OnRequest(func(r *colly.Request) {
-//         fmt.Println("Visiting", r.URL)
-//         r.Headers.Set("Proxy-Authorization", basic)
-//         r.Headers.Set("X-Crawlera-Profile", "desktop")
-//     })
-//     de.OnResponse(func(r *colly.Response) {
-//         fmt.Println("yes")
-//     })
-        
-// }
+func scrapReviews(data *Reviews) {
+    // create reviews array to store review data
+    reviewformate := []ReviewFomate{}
+
+    for _, obj := range data.Reviews {
+        posted_at, err := time.Parse("1/2/2006", obj.Source_date)
+        checkError(err)
+
+        review := ReviewFomate {
+            Review_id: obj.Review_id,
+            Author_id: obj.Author_id,
+            Author_name: obj.User.Author_name,
+            Text: obj.Comment.Text,
+            Rating: obj.Rating,
+            Source_date: obj.Source_date,
+            Photos: obj.Photos,
+            Posted_at: int64(posted_at.Unix()),
+            Scraped_at: int64(time.Now().Unix()),
+        }
+
+        reviewformate = append(reviewformate, review)
+    }
+
+    enc := json.NewEncoder(os.Stdout)
+    enc.SetIndent("", "  ")
+
+    // Dump json to the standard output
+    enc.Encode(reviewformate)
+}
 
 func checkError(err error) {
     if err != nil {

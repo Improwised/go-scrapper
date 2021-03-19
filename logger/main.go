@@ -39,7 +39,7 @@ var zapServerConfig = zap.Config{
 }
 
 //NewRootLogger instantiates zap.Logger with given configuration
-func NewRootLogger(debug, developement bool) (*zap.Logger, error) {
+func newRootLogger(debug, developement bool) (*zap.Logger, error) {
   var err error
   var logger *zap.Logger
   if debug {
@@ -64,4 +64,16 @@ func NewRootLogger(debug, developement bool) (*zap.Logger, error) {
   }
 
   return logger, err
+}
+
+func InitLogger(debug, developement bool) {
+  logger, err := newRootLogger(debug, developement)
+  if err != nil {
+    panic(err)
+  }
+  zap.ReplaceGlobals(logger)
+}
+
+func GetLogger() *zap.Logger {
+  return zap.L()
 }

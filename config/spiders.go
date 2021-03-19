@@ -7,4 +7,3 @@ import (
 var Spiders = map[string]spiders.RootSpider {
   "yelp-web": &spiders.YelpSpider{},
 }
-

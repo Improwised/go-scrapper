@@ -16,11 +16,14 @@ func GetSpiderCmdDef(SpiderName string) *cobra.Command {
       fmt.Println("Running Spider " + SpiderName)
       spider := config.Spiders[SpiderName]
       additional_args := cmd.Flag("additional-args").Value.String()
+      op := cmd.Flag("output").Value.String()
       spider.SetAdditionalArgs(additional_args)
+      spider.SetOutputFilename(op)
       spider.Run()
     },
   }
   cmd.PersistentFlags().StringP("additional-args", "a", "", "NAME=VALUE as additional Arguments.")
+  cmd.PersistentFlags().StringP("output", "o", "", "output filename.")
   return cmd
 }
 

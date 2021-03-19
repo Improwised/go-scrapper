@@ -1,7 +1,7 @@
 package spiders
 
 import (
-	"fmt"
+	// "fmt"
 	"encoding/base64"
 	"strings"
 	"encoding/json"
@@ -26,17 +26,22 @@ type BaseSpider struct {
 		Street string `json:"street"`
 		Zip    string `json:"zip"`
 	} `json:"address"`
+	filename string
 }
 
-func (b *BaseSpider) SetAdditionalArgs(arg string) {
+func (me *BaseSpider) SetAdditionalArgs(arg string) {
 	additionalArgs := strings.Split(arg, "=")
 	_, p := additionalArgs[0], additionalArgs[1]
   place, err := base64.StdEncoding.DecodeString(p)
   if err != nil {
-  	fmt.Println("Some error !", err)
+  	panic(err)
   }
-	err = json.Unmarshal(place, &b)
+	err = json.Unmarshal(place, &me)
   if err != nil {
-  	fmt.Println("Some error !", err)
+  	panic(err)
   }
+}
+
+func (me *BaseSpider) SetOutputFilename(fname string) {
+	me.filename = fname
 }

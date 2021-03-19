@@ -1,21 +1,37 @@
 package main
 
 import (
-	"fmt"
+    "fmt"
+    "sync"
+    "time"
 )
 
-func sum(nums ...int) {
-    var s = 0
-    for _, n := range nums {
-        s = s + n
-        fmt.Println(n)
-    }
-    fmt.Printf("Final = %d\n", s)
+func worker(id int, wg *sync.WaitGroup) {
+
+    defer wg.Done()
+
+    fmt.Printf("Worker %d starting\n", id)
+
+    time.Sleep(time.Second)
+    fmt.Printf("Worker %d done\n", id)
 }
 
 func main() {
 
-    var arr = []int{1,3,4}
+    var wg sync.WaitGroup
 
-    sum(arr...)
+    for i := 1; i <= 5; i++ {
+		    wg.Add(1)
+        go worker(i, &wg)
+    }
+
+    wg.Wait()
+
+    for i := 1; i <= 5; i++ {
+		    wg.Add(1)
+        go worker(i, &wg)
+    }
+
+    wg.Wait()
+    fmt.Println("Completed !")
 }

@@ -28,6 +28,7 @@ type Scrapy struct {
 
 func (me *Scrapy) Setup(allowedDomains []string) {
   // create collector
+
   me.instance = colly.NewCollector(
     colly.AllowedDomains(allowedDomains...),
   )
@@ -168,7 +169,9 @@ func (me *Scrapy) CheckMe(profileUrl string) {
     })
 
     // request start page url 
-    // me.instance.Visit("https://www.yelp.com/not_recommended_reviews/home-alarm-authorized-adt-dealer-lemon-grove")
-    me.instance.Visit(profileUrl)
+    me.instance.Visit("https://www.yelp.com/not_recommended_reviews/home-alarm-authorized-adt-dealer-lemon-grove")
+    // me.instance.Visit(profileUrl)
 
 }
+
+

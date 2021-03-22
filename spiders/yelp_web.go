@@ -30,18 +30,29 @@ func (me *YelpSpider) ParseBusinessPage() {
   log.Info("I'm here at parse business page !")
 }
 
+func (me *YelpSpider) CommonRequest(url string) *services.ScrapyRequest {
+  r := me.CreateRequest(url)
+  r.SetDomains(me.allowedDomains)
+  return r
+}
+
 func (me *YelpSpider) Run() {
 
+  r := me.CommonRequest("https://www.yelp.com/biz/the-crack-shack-little-italy-san-diego")
+  r.Call()
   /* Init Logger */
-  log := logger.GetLogger()
+  // log := logger.GetLogger()
 
-  scrapy := me.Setup()
+  // scrapy := me.Setup()
   // headers := map[string]string {
   //   "X-Crawlera-Profile": "desktop",  
   // }
 
-  log.Info("Starting profile request")
-  // scrapy.Request(me.ProfileKey, me.ParseBusinessPage, headers)
-  log.Info("ProfileKey = " + me.ProfileKey)
-  scrapy.CheckMe(me.ProfileKey)
+  // log.Info("Starting profile request")
+  // // scrapy.Request(me.ProfileKey, me.ParseBusinessPage, headers)
+  // log.Info("ProfileKey = " + me.ProfileKey)
+  // scrapy.CheckMe(me.ProfileKey)
+
+  // services.MakeRequest(me.defaultRequest(me.ProfileKey))
+
 }

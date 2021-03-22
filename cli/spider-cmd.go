@@ -1,9 +1,10 @@
 package cli
 
 import (
-    "fmt"
+    // "fmt"
     "github.com/spf13/cobra"
     "go-yelp-with-proxy/config"
+    "go-yelp-with-proxy/logger"
 )
 
 func GetSpiderCmdDef(SpiderName string) *cobra.Command {
@@ -13,7 +14,8 @@ func GetSpiderCmdDef(SpiderName string) *cobra.Command {
     Long: "Run spider " + SpiderName,
     Run: func(cmd *cobra.Command, args []string) {
       // Do Stuff Here
-      fmt.Println("Running Spider " + SpiderName)
+      l := logger.GetLogger()
+      l.Info("Running Spider " + SpiderName)
       spider := config.Spiders[SpiderName]
       additional_args := cmd.Flag("additional-args").Value.String()
       op := cmd.Flag("output").Value.String()

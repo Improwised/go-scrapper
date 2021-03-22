@@ -8,10 +8,6 @@ import (
 )
 
 func main() {
-  Init()
-}
-
-func Init() {
   cfg := settings.GetAppSettings()
   logger.InitLogger(cfg.Debug, cfg.IsDevelopment)
 

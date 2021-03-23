@@ -5,6 +5,7 @@ import (
     "log"
     "time"
     "strings"
+    "strconv"
     "encoding/json"
     "github.com/gocolly/colly/v2"
     "io"
@@ -23,6 +24,17 @@ const auth = "65c0f90ccf854cb5874088f30da2d82c:"
 // Review stores information about a review
 type Reviews struct {
     Reviews []Review `json:"reviews"`
+    Pagination struct {
+        TotalResults int32 `json:"totalResults"`
+        StartResult int32 `json:"startResult"`
+        ResultsPerPage int32 `json:"resultsPerPage"`
+    } `json:"pagination"`
+}
+
+type Pagination struct {
+    TotalResults int32 
+    StartResult int32 
+    ResultsPerPage int32
 }
 
 type Review struct {
@@ -67,6 +79,22 @@ type ReviewFomate struct {
     }
 }
 
+type Histogram struct {
+    AggregateRating struct { 
+        RatingValue float32 `json:"ratingValue"`
+        ReviewCount int32 `json:"reviewCount"`
+    }`json:"aggregateRating"`
+}
+
+type Primary struct {
+    Score float32 
+    Total_reviews int32
+}
+
+type PrimaryHistogram struct {
+    Primary Primary
+}
+
 func main() {
     // create collector
     c := colly.NewCollector(
@@ -101,12 +129,28 @@ func main() {
     // Find and visit all next page links
     c.OnHTML("html", func(e *colly.HTMLElement) {
         d := c.Clone()
-
         d.OnResponse(func(r *colly.Response) {
             data := &Reviews{}
             err := json.Unmarshal(r.Body, data)
             checkError(err)
             scrapReviews(data)
+
+            pagination := Pagination {
+                TotalResults: data.Pagination.TotalResults,
+                StartResult: data.Pagination.StartResult,
+                ResultsPerPage: data.Pagination.ResultsPerPage,
+            }
+            var pag Pagination 
+
+            if (pagination != pag) {
+                skip := pagination.ResultsPerPage + pagination.StartResult
+                if pagination.TotalResults > skip {
+                    fmt.Println(skip)
+                    skipInString := strconv.FormatInt(int64(skip), 10)
+                    nextPageUrl := r.Request.URL.String() + "?start=" + skipInString
+                    d.Visit(nextPageUrl)
+                }
+            }
         })
 
         d.OnError(func(r *colly.Response, e error) {
@@ -119,10 +163,29 @@ func main() {
             r.Headers.Set("Proxy-Authorization", basic)
             r.Headers.Set("X-Crawlera-Profile", "desktop")
         })
-
         business_id := strings.Split(e.ChildAttr("meta[name=\"yelp-biz-id\"]", "content"), "\n")[0]
         url := "https://www.yelp.com/biz/" + business_id + "/review_feed?rl=en&sort_by=date_desc"
         d.Visit(url)
+    })
+
+    c.OnHTML("div.main-content-wrap", func(e *colly.HTMLElement) {
+        scriptData := e.ChildText("script[type=\"application/ld+json\"]")
+        scriptData = scriptData[strings.Index(scriptData, "{") : strings.Index(scriptData, "}}")]
+        scriptData = scriptData + "}}"
+        data := Histogram{}
+        err := json.Unmarshal([]byte(scriptData), &data)
+        checkError(err)
+        histogram := PrimaryHistogram{}
+        histogram.Primary = Primary {
+            Score: data.AggregateRating.RatingValue,
+            Total_reviews: data.AggregateRating.ReviewCount,
+        }
+
+        enc := json.NewEncoder(os.Stdout)
+        enc.SetIndent("", "  ")
+
+        // Dump json to the standard output
+        enc.Encode(histogram)
     })
 
     // pass some headers in request
@@ -143,7 +206,6 @@ func main() {
 func scrapReviews(data *Reviews) {
     // create reviews array to store review data
     reviewformate := []ReviewFomate{}
-
     for _, obj := range data.Reviews {
         posted_at, err := time.Parse("1/2/2006", obj.Source_date)
         checkError(err)
@@ -161,7 +223,7 @@ func scrapReviews(data *Reviews) {
         }
 
         reviewformate = append(reviewformate, review)
-    }
+    } 
 
     enc := json.NewEncoder(os.Stdout)
     enc.SetIndent("", "  ")

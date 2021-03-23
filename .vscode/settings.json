@@ -1,0 +1,7 @@
+{
+    "editor.fontFamily": "'Fira Code', 'monospace', monospace, 'Droid Sans Fallback'",
+    "workbench.colorTheme": "Visual Studio Dark",
+    "editor.lineHeight": 24,
+    "editor.smoothScrolling": true,
+    "editor.cursorSmoothCaretAnimation": true
+}

@@ -100,6 +100,22 @@ type ReviewFomate struct {
 	PreviousReview                 PreviousReview
 }
 
+type Histogram struct {
+    AggregateRating struct { 
+        RatingValue float32 `json:"ratingValue"`
+        ReviewCount int32 `json:"reviewCount"`
+    }`json:"aggregateRating"`
+}
+
+type Primary struct {
+    Score float32 
+    Total_reviews int32
+}
+
+type PrimaryHistogram struct {
+    Primary Primary
+}
+
 func main() {
 	fmt.Println("Hello test.")
 
@@ -257,6 +273,22 @@ func yelpSpiderRun(args, op string) {
 		}
 
 	})
+
+	// collect histogram data
+    profileColly.OnHTML("div.main-content-wrap", func(e *colly.HTMLElement) {
+        scriptData := e.ChildText("script[type=\"application/ld+json\"]")
+        scriptData = scriptData[strings.Index(scriptData, "{") : strings.Index(scriptData, "}}")]
+        scriptData = scriptData + "}}"
+        data := Histogram{}
+        err := json.Unmarshal([]byte(scriptData), &data)
+        checkError(err)
+        histogram := PrimaryHistogram{}
+        histogram.Primary = Primary {
+            Score: data.AggregateRating.RatingValue,
+            Total_reviews: data.AggregateRating.ReviewCount,
+        }
+        fmt.Println("Histogram", histogram)
+    })
 
 	profileColly.OnResponse(func(r *colly.Response) {
 		go func() {

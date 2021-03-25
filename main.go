@@ -100,6 +100,22 @@ type ReviewFomate struct {
 	PreviousReview                 PreviousReview
 }
 
+type HistogramFormat struct {
+	AggregateRating struct {
+		RatingValue float32 `json:"ratingValue"`
+		ReviewCount int32   `json:"reviewCount"`
+	} `json:"aggregateRating"`
+}
+
+type Primary struct {
+	Score         float32
+	Total_reviews int32
+}
+
+type Histogram struct {
+	Primary Primary
+}
+
 func main() {
 	var cmd = &cobra.Command{
 		Use:   "yelp",
@@ -211,6 +227,7 @@ func updateAndPrintCnt(r *int, c *int, t int, a int) {
 
 var (
 	reviews     []ReviewFomate
+	histogram   Histogram
 	spider      *Spider
 	rev_counter int
 	non_counter int
@@ -244,7 +261,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 	profile := getColly(spider.Persona.Proxy)
 	profile.OnError(func(r *colly.Response, e error) {
 		log.Println("error:", e, r.Request.URL, string(r.Body))
-		wg.Done()
+		wg.Done() // for histogram
 	})
 	profile.OnHTML(`html`, func(e *colly.HTMLElement) {
 		fmt.Println("Response - ", e.Request.URL.String())
@@ -252,6 +269,22 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 		// Collect Business ID
 		businessId := strings.Split(e.ChildAttr("meta[name=\"yelp-biz-id\"]", "content"), "\n")[0]
 		fmt.Println("Business ID:", businessId)
+
+		// ===================================
+		// Collecting Histogram
+		// ===================================
+		// scriptData := e.ChildText("script[type=\"application/ld+json\"]")
+		// scriptData = scriptData[strings.Index(scriptData, "{"):strings.Index(scriptData, "}}")]
+		// scriptData = scriptData + "}}"
+		// data := HistogramFormat{}
+		// err := json.Unmarshal([]byte(scriptData), &data)
+		// checkError(err)
+		// histogram := Histogram{}
+		// histogram.Primary = Primary{
+		// 	Score:         data.AggregateRating.RatingValue,
+		// 	Total_reviews: data.AggregateRating.ReviewCount,
+		// }
+		// fmt.Println("Histogram", histogram)
 
 		// ===================================
 		// Non Recommanded Review Scrap
@@ -267,8 +300,8 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 		// Fist visit to non recommanded URL
 		fmt.Println("Non Recommmanded URL:", nonRevURL)
 		fmt.Println(">>>>>>>>>>>> ADD - non recommended first")
-		// wg.Add(1)
-		// go nonRecommandedReviewUrlCall(spider, wg, nonRevURL.String())
+		wg.Add(1)
+		go nonRecommandedReviewUrlCall(spider, wg, nonRevURL.String())
 
 		// ===================================
 		// Normal Review Scrap

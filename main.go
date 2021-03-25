@@ -274,18 +274,19 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 		// ===================================
 		// Collecting Histogram
 		// ===================================
-		// scriptData := e.ChildText("script[type=\"application/ld+json\"]")
-		// scriptData = scriptData[strings.Index(scriptData, "{"):strings.Index(scriptData, "}}")]
-		// scriptData = scriptData + "}}"
-		// data := HistogramFormat{}
-		// err := json.Unmarshal([]byte(scriptData), &data)
-		// checkError(err)
-		// histogram := Histogram{}
-		// histogram.Primary = Primary{
-		// 	Score:         data.AggregateRating.RatingValue,
-		// 	Total_reviews: data.AggregateRating.ReviewCount,
-		// }
-		// fmt.Println("Histogram", histogram)
+		scriptData := e.ChildText("script[type=\"application/ld+json\"]")
+        scriptData = scriptData[strings.Index(scriptData, "{") : strings.Index(scriptData, "}{")]
+        scriptData = scriptData + "}"
+		data := HistogramFormat{}
+        err := json.Unmarshal([]byte(scriptData), &data)
+        checkError(err)
+        histogram := Histogram{}
+        histogram.Primary = Primary {
+            Score: data.AggregateRating.RatingValue,
+            Total_reviews: data.AggregateRating.ReviewCount,
+        }
+
+        fmt.Println("Histogram:", histogram)
 
 		// ===================================
 		// Non Recommanded Review Scrap

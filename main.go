@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
@@ -254,7 +255,7 @@ func yelpSpiderRun(args, op string) {
 	fmt.Println("Waiting...")
 	wg.Wait()
 	fmt.Println("Profile Call done ! -- Count", len(reviews))
-	os.Exit(0)
+	dumpReviews(spider)
 }
 
 func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
@@ -509,4 +510,36 @@ func checkError(err error) {
 		fmt.Println("Fatal error ", err.Error())
 		os.Exit(1)
 	}
+}
+
+func dumpReviews(spider *Spider) {
+	for _, v := range reviews {
+		fmt.Println(v)
+		n, err := WriteDataToFileAsJSON(v, spider.filename)
+		if err != nil {
+			panic(err)
+		}
+		print("Written Count", n)
+	}
+}
+
+func WriteDataToFileAsJSON(data interface{}, filedir string) (int, error) {
+	//write data as buffer to json encoder
+	buffer := new(bytes.Buffer)
+	encoder := json.NewEncoder(buffer)
+	// encoder.SetIndent("", "\t")
+
+	err := encoder.Encode(data)
+	if err != nil {
+		return 0, err
+	}
+	file, err := os.OpenFile(filedir, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0755)
+	if err != nil {
+		return 0, err
+	}
+	n, err := file.Write(buffer.Bytes())
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
 }

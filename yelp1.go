@@ -5,7 +5,8 @@ import (
     "log"
     "time"
     "strings"
-    "strconv"
+    "html"
+    // "strconv"
     "encoding/json"
     "github.com/gocolly/colly/v2"
     "io"
@@ -135,22 +136,22 @@ func main() {
             checkError(err)
             scrapReviews(data)
 
-            pagination := Pagination {
-                TotalResults: data.Pagination.TotalResults,
-                StartResult: data.Pagination.StartResult,
-                ResultsPerPage: data.Pagination.ResultsPerPage,
-            }
-            var pag Pagination 
+            // pagination := Pagination {
+            //     TotalResults: data.Pagination.TotalResults,
+            //     StartResult: data.Pagination.StartResult,
+            //     ResultsPerPage: data.Pagination.ResultsPerPage,
+            // }
+            // var pag Pagination 
 
-            if (pagination != pag) {
-                skip := pagination.ResultsPerPage + pagination.StartResult
-                if pagination.TotalResults > skip {
-                    fmt.Println(skip)
-                    skipInString := strconv.FormatInt(int64(skip), 10)
-                    nextPageUrl := r.Request.URL.String() + "?start=" + skipInString
-                    d.Visit(nextPageUrl)
-                }
-            }
+            // if (pagination != pag) {
+            //     skip := pagination.ResultsPerPage + pagination.StartResult
+            //     if pagination.TotalResults > skip {
+            //         fmt.Println(skip)
+            //         skipInString := strconv.FormatInt(int64(skip), 10)
+            //         nextPageUrl := r.Request.URL.String() + "?start=" + skipInString
+            //         d.Visit(nextPageUrl)
+            //     }
+            // }
         })
 
         d.OnError(func(r *colly.Response, e error) {
@@ -214,7 +215,7 @@ func scrapReviews(data *Reviews) {
             Review_id: obj.Review_id,
             Author_id: obj.Author_id,
             Author_name: obj.User.Author_name,
-            Text: obj.Comment.Text,
+            Text: html.UnescapeString(obj.Comment.Text),
             Rating: obj.Rating,
             Source_date: obj.Source_date,
             Photos: obj.Photos,

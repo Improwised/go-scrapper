@@ -101,8 +101,6 @@ type ReviewFomate struct {
 }
 
 func main() {
-	fmt.Println("Hello test.")
-
 	var cmd = &cobra.Command{
 		Use:   "yelp",
 		Short: "Run spider yelp",
@@ -123,11 +121,11 @@ func main() {
 	if err := cmd.Execute(); err != nil {
 		panic(err)
 	}
-
 }
 
 func setPlace(args string, sp *Spider) {
 	additionalArgs := strings.Split(args, "=")
+	fmt.Println(args)
 	if len(additionalArgs) >= 2 {
 		_, p := additionalArgs[0], additionalArgs[1]
 		place, err := base64.StdEncoding.DecodeString(p)
@@ -156,7 +154,7 @@ func getFromProxy(proxy, key string) string {
 		ans = accessKey
 		break
 	}
-	fmt.Println("Proxy(" + key + "): " + ans)
+	// fmt.Println("Proxy(" + key + "): " + ans)
 	return ans
 }
 
@@ -165,7 +163,7 @@ func getColly(proxy string) *colly.Collector {
 		colly.AllowedDomains("yelp.com", "www.yelp.com"),
 	)
 	proxyUrl := getFromProxy(proxy, "url")
-	fmt.Println(proxyUrl)
+	// fmt.Println(proxyUrl)
 	proxyURL, err := url.Parse(proxyUrl)
 	checkError(err)
 
@@ -187,7 +185,7 @@ func getColly(proxy string) *colly.Collector {
 	c.WithTransport(transport)
 
 	c.OnRequest(func(r *colly.Request) {
-		// fmt.Println("Visiting", r.URL)
+		fmt.Println("Visit - ", r.URL)
 		authKey := getFromProxy(proxy, "key")
 		basic := "Basic " + base64.StdEncoding.EncodeToString([]byte(authKey))
 		r.Headers.Set("Proxy-Authorization", basic)
@@ -201,7 +199,28 @@ func getColly(proxy string) *colly.Collector {
 	return c
 }
 
+func updateAndPrintCnt(r *int, c *int, t int, a int) {
+	if t == 1 {
+		*r += a
+	}
+	if t == 2 {
+		*c += a
+	}
+	fmt.Println("Counters", *r, *c)
+}
+
+var (
+	reviews     []ReviewFomate
+	spider      *Spider
+	rev_counter int
+	non_counter int
+	err_counter int
+	business_id string
+)
+
 func yelpSpiderRun(args, op string) {
+
+	// Initialize variables
 	spider := &Spider{filename: op}
 	setPlace(args, spider)
 
@@ -209,71 +228,86 @@ func yelpSpiderRun(args, op string) {
 		fmt.Println("We are not supporting business without profile key as of now.")
 		os.Exit(1)
 	}
-	reviews := []ReviewFomate{}
-	rev_counter := 0
-	non_counter := 0
 
-	var profileColly = getColly(spider.Persona.Proxy)
-	var reviewCollector = getColly(spider.Persona.Proxy)
-	var nonRevCollector = getColly(spider.Persona.Proxy)
-	var nonRevCollector2 = getColly(spider.Persona.Proxy)
+	// Profile URL Call
+	var wg sync.WaitGroup
+	wg.Add(1)
+	fmt.Println(">>>>>>>>>>>> ADD - initial")
+	go callProfileURL(spider, &wg)
+	fmt.Println("Waiting...")
+	wg.Wait()
+	fmt.Println("Profile Call done ! -- Count", len(reviews))
+	os.Exit(0)
+}
 
-	var wgA sync.WaitGroup
-	var wgB sync.WaitGroup
-	var business_id string
-	wgB.Add(1)
-	fmt.Println("Initialize wait group.")
+func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
+	profile := getColly(spider.Persona.Proxy)
+	profile.OnError(func(r *colly.Response, e error) {
+		log.Println("error:", e, r.Request.URL, string(r.Body))
+		wg.Done()
+	})
+	profile.OnHTML(`html`, func(e *colly.HTMLElement) {
+		fmt.Println("Response - ", e.Request.URL.String())
 
-	// Find and visit all next page links
-	profileColly.OnHTML("html", func(e *colly.HTMLElement) {
-		fmt.Println("Collected Html")
+		// Collect Business ID
+		businessId := strings.Split(e.ChildAttr("meta[name=\"yelp-biz-id\"]", "content"), "\n")[0]
+		fmt.Println("Business ID:", businessId)
 
-		business_id = strings.Split(e.ChildAttr("meta[name=\"yelp-biz-id\"]", "content"), "\n")[0]
-		wgB.Done()
-		RevUrl := "https://www.yelp.com/biz/" + business_id + "/review_feed?rl=en&sort_by=date_desc"
-		fmt.Println(RevUrl)
+		// ===================================
+		// Non Recommanded Review Scrap
+		// ===================================
 
+		// Prepare Non Recommanded URL
+		nonUrl, err := url.Parse("/not_recommended_reviews/" + businessId)
+		if err != nil {
+			log.Fatal(err)
+		}
+		nonRevURL := e.Request.URL.ResolveReference(nonUrl)
+
+		// Fist visit to non recommanded URL
+		fmt.Println("Non Recommmanded URL:", nonRevURL)
+		fmt.Println(">>>>>>>>>>>> ADD - non recommended first")
+		// wg.Add(1)
+		// go nonRecommandedReviewUrlCall(spider, wg, nonRevURL.String())
+
+		// ===================================
+		// Normal Review Scrap
+		// ===================================
+
+		// Prepare URL
+		RevUrl := "https://www.yelp.com/biz/" + businessId + "/review_feed?rl=en&sort_by=date_desc"
+
+		// Collect Review Count
 		jsonStr := e.ChildText("script[type=\"application/ld+json\"]")
-
-		// re := regexp.MustCompile("\\$\\{(.*?)\\}")
 		re := regexp.MustCompile("\"reviewCount\":(\\d*)")
 		match := re.FindStringSubmatch(jsonStr)
 		reviewCount, err := strconv.Atoi(match[1])
 		if err != nil {
 			panic(err)
 		}
-		fmt.Println(reviewCount)
+		fmt.Println("Normal Reviews:", reviewCount)
+		fmt.Println("URL", RevUrl)
 
-		if strings.Contains(jsonStr, "reviewCount") {
-			fmt.Println("Found")
-		} else {
-			fmt.Println("Not Found !")
-		}
+		// Call all pages.
 		for i := 0; i < reviewCount; i += 10 {
-			wgA.Add(1)
-			rev_counter += 1
-			fmt.Println("Counters", rev_counter, non_counter)
-			go reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(i))
+			wg.Add(1)
+			go normalReview(spider, wg, RevUrl+"&start="+strconv.Itoa(i))
 		}
-
+		fmt.Println(">>>>>>>>>>>> DONE - initial")
+		wg.Done()
 	})
+	profile.Visit(spider.ProfileKey)
+}
 
-	profileColly.OnResponse(func(r *colly.Response) {
-		go func() {
-			wgB.Wait()
-			// Non Recommended Reviews
-			NrRevUrl, err := url.Parse("/not_recommended_reviews/" + business_id)
-			if err != nil {
-				log.Fatal(err)
-			}
-			fmt.Println("URL ==>")
-			nrRevURL := r.Request.URL.ResolveReference(NrRevUrl)
-			fmt.Println(nrRevURL)
-			nonRevCollector.Visit(nrRevURL.String())
-		}()
+func normalReview(spider *Spider, wg *sync.WaitGroup, link string) {
+	linkCall := getColly(spider.Persona.Proxy)
+	linkCall.OnError(func(r *colly.Response, e error) {
+		log.Println("error:", e, r.Request.URL, string(r.Body))
+		ilink := r.Request.URL.String()
+		fmt.Println("URL Error:", ilink)
+		wg.Done()
 	})
-
-	reviewCollector.OnResponse(func(r *colly.Response) {
+	linkCall.OnResponse(func(r *colly.Response) {
 		data := &Reviews{}
 		err := json.Unmarshal(r.Body, data)
 		checkError(err)
@@ -294,39 +328,68 @@ func yelpSpiderRun(args, op string) {
 			}
 
 			reviews = append(reviews, review)
+			rev_counter += 1
 		}
-		rev_counter -= 1
-		fmt.Println("Counters", rev_counter, non_counter)
-		wgA.Done()
+		fmt.Println("Non Counter", rev_counter)
+		wg.Done()
 	})
+	linkCall.Visit(link)
+}
 
-	nonRevCollector.OnHTML("h3", func(e *colly.HTMLElement) {
-		if strings.Contains(e.Text, "recommended") {
-			re := regexp.MustCompile("(\\d+)")
-			match := re.FindStringSubmatch(e.Text)
-			reviewCount, err := strconv.Atoi(match[1])
-			if err != nil {
-				panic(err)
-			}
-			fmt.Println("Non Recoommended Reviews -- ", reviewCount)
-			fmt.Println(e.Request.URL)
-			for i := 0; i < reviewCount; i += 10 {
-				wgA.Add(1)
-				non_counter += 1
-				fmt.Println("Counters", rev_counter, non_counter)
-				visitingUrl := e.Request.URL.String() + "?start=" + strconv.Itoa(i)
-				go nonRevCollector2.Visit(visitingUrl)
+func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string) {
+	linkCall := getColly(spider.Persona.Proxy)
+	linkCall.OnError(func(r *colly.Response, e error) {
+		log.Println("error:", e, r.Request.URL, string(r.Body))
+		wg.Done()
+	})
+	linkCall.OnHTML(`html`, func(e *colly.HTMLElement) {
+		fmt.Println("Response - ", e.Request.URL.String())
+
+		nonReviewCount := 0
+
+		for _, v := range e.ChildTexts("h3") {
+			fmt.Println("H3 =", v)
+			if strings.Contains(v, "recommended") {
+				re := regexp.MustCompile("(\\d+)")
+				match := re.FindStringSubmatch(v)
+				count, err := strconv.Atoi(match[1])
+				if err != nil {
+					panic(err)
+				}
+				nonReviewCount = count
+				fmt.Println("OK...", nonReviewCount)
 			}
 		}
-	})
 
-	nonRevCollector2.OnResponse(func(r *colly.Response) {
-		non_counter -= 1
-		fmt.Println("Counters", rev_counter, non_counter)
-		wgA.Done()
-	})
+		fmt.Println("Non recommanded Reviews", nonReviewCount)
+		fmt.Println("Link", e.Request.URL.String())
 
-	nonRevCollector2.OnHTML(`div.not-recommended-reviews > ul.reviews > li`, func(e *colly.HTMLElement) {
+		for i := 0; i < nonReviewCount; i += 10 {
+			fmt.Println(">>>>>>>>>>>> ADD - non rec follow up")
+			wg.Add(1)
+			visitingUrl := e.Request.URL.String() + "?not_recommended_start=" + strconv.Itoa(i)
+			go nonRecommandedReviewUrlCallFollowup(spider, wg, visitingUrl)
+		}
+		fmt.Println(">>>>>>>>>>>> DONE - non rec first")
+		wg.Done()
+	})
+	linkCall.Visit(link)
+}
+
+func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup, link string) {
+	linkCall := getColly(spider.Persona.Proxy)
+	linkCall.OnError(func(r *colly.Response, e error) {
+		log.Println("error:", e, r.Request.URL, string(r.Body))
+		wg.Done()
+	})
+	linkCall.OnHTML(`html`, func(e *colly.HTMLElement) {
+		nonReviewCount := len(e.ChildTexts(`div.not-recommended-reviews > ul.reviews > li`))
+		fmt.Println("Review Count", nonReviewCount, e.Request.URL.String())
+		wg.Add(nonReviewCount)
+		wg.Done()
+		fmt.Println("Non Counter", non_counter)
+	})
+	linkCall.OnHTML(`div.not-recommended-reviews > ul.reviews > li`, func(e *colly.HTMLElement) {
 		author_id := e.ChildAttr("div.review-sidebar .user-display-name", "data-hovercard-id")
 		author_name := e.ChildText("div.review-sidebar .user-display-name")
 		text := e.ChildText("div.review-wrapper div.review-content p")
@@ -399,31 +462,10 @@ func yelpSpiderRun(args, op string) {
 		}
 
 		reviews = append(reviews, review)
+		non_counter += 1
+		wg.Done()
 	})
-
-	reviewCollector.OnError(func(r *colly.Response, e error) {
-		wgA.Done()
-		// fmt.Println("Retrying", r.Request.URL.String())
-		// go reviewCollector.Visit(r.Request.URL.String())
-	})
-
-	nonRevCollector2.OnError(func(r *colly.Response, e error) {
-		wgA.Done()
-		// fmt.Println("Retrying", r.Request.URL.String())
-		// go nonRevCollector2.Visit(r.Request.URL.String())
-	})
-
-	// request start page url
-	profileColly.Visit(spider.ProfileKey)
-
-	wgA.Wait()
-	fmt.Println("FINALLY DONE ! ", len(reviews))
-	fmt.Println("Couters -- ", rev_counter, non_counter)
-	// out, err := json.Marshal(reviews)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// fmt.Println(string(out))
+	linkCall.Visit(link)
 }
 
 func checkError(err error) {

@@ -117,6 +117,12 @@ type Histogram struct {
 	Primary Primary
 }
 
+type Meta struct {
+	Histogram Histogram
+	Profile_key, Start_time, Finish_time, Scraping_status string
+	Item_scraped_count, Request_count, Response_bytes int
+}	
+
 func main() {
 	var cmd = &cobra.Command{
 		Use:   "yelp",
@@ -233,7 +239,11 @@ var (
 	rev_counter int
 	non_counter int
 	err_counter int
+	minimal_review_count int
+	item_scraped_count int
 	business_id string
+	start_time string
+	finish_time string
 )
 
 func yelpSpiderRun(args, op string) {
@@ -250,10 +260,14 @@ func yelpSpiderRun(args, op string) {
 	// Profile URL Call
 	var wg sync.WaitGroup
 	wg.Add(1)
+	start_time = time.Now().UTC().String()
 	go callProfileURL(spider, &wg)
 	fmt.Println("Waiting...")
 	wg.Wait()
+	finish_time = time.Now().UTC().String()
 	fmt.Println("Profile Call done ! -- Count", len(reviews))
+	item_scraped_count = len(reviews)
+	dumpMetaData()
 	dumpReviews(spider)
 }
 
@@ -279,7 +293,6 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 		data := HistogramFormat{}
         err := json.Unmarshal([]byte(scriptData), &data)
         checkError(err)
-        histogram := Histogram{}
         histogram.Primary = Primary {
             Score: data.AggregateRating.RatingValue,
             Total_reviews: data.AggregateRating.ReviewCount,
@@ -304,7 +317,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 				panic(err)
 			}
 			fmt.Println("Normal Reviews:", reviewCount)
-
+			minimal_review_count = reviewCount
 			// Call all pages.
 			for i := 0; i < reviewCount; i += 10 {
 				wg.Add(1)
@@ -401,6 +414,7 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
 		}
 
 		fmt.Println("Non recommanded Reviews", nonReviewCount)
+		minimal_review_count = nonReviewCount
 
 		for i := 0; i < nonReviewCount; i += 10 {
 			wg.Add(1)
@@ -544,3 +558,52 @@ func WriteDataToFileAsJSON(data interface{}, filedir string) (int, error) {
 	}
 	return n, nil
 }
+
+func dumpMetaData() {
+	scraping_status := getScrapingStatus()
+	data := Meta{
+		Histogram: histogram,
+		Profile_key: spider.ProfileKey,
+		Item_scraped_count: item_scraped_count,
+		Scraping_status: scraping_status,
+		Start_time: start_time,
+		Finish_time: finish_time,
+	}
+	WriteMetaDataToFileAsJSON(data, "somthing-out-meta.json")
+}
+
+func WriteMetaDataToFileAsJSON(data Meta, filedir string) (int, error) {
+	//write data as buffer to json encoder
+	buffer := new(bytes.Buffer)
+	encoder := json.NewEncoder(buffer)
+	// encoder.SetIndent("", "\t")
+
+	err := encoder.Encode(data)
+	if err != nil {
+		return 0, err
+	}
+	file, err := os.OpenFile(filedir, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0755)
+	if err != nil {
+		return 0, err
+	}
+	n, err := file.Write(buffer.Bytes())
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+func getScrapingStatus() string {
+	var status string
+	if item_scraped_count > 0 {
+		status = "SUCCESS_SCRAPED"
+	} else {
+		if minimal_review_count > 0 {
+			status = "SCRAPE_FAILED"
+		} else {
+			status = "NO_REVIEWS"
+		}
+	}
+	return status
+}
+

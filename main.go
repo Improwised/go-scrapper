@@ -250,7 +250,6 @@ func yelpSpiderRun(args, op string) {
 	// Profile URL Call
 	var wg sync.WaitGroup
 	wg.Add(1)
-	fmt.Println(">>>>>>>>>>>> ADD - initial")
 	go callProfileURL(spider, &wg)
 	fmt.Println("Waiting...")
 	wg.Wait()
@@ -289,6 +288,36 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
         fmt.Println("Histogram:", histogram)
 
 		// ===================================
+		// Normal Review Scrap
+		// ===================================
+
+		// Prepare URL
+		RevUrl := "https://www.yelp.com/biz/" + businessId + "/review_feed?rl=en&sort_by=date_desc"
+
+		// Collect Review Count
+		jsonStr := e.ChildText("script[type=\"application/ld+json\"]")
+		re := regexp.MustCompile("\"reviewCount\":(\\d*)")
+		match := re.FindStringSubmatch(jsonStr)
+		if len(match) >= 2 {
+			reviewCount, err := strconv.Atoi(match[1])
+			if err != nil {
+				panic(err)
+			}
+			fmt.Println("Normal Reviews:", reviewCount)
+
+			// Call all pages.
+			for i := 0; i < reviewCount; i += 10 {
+				wg.Add(1)
+				go normalReview(spider, wg, RevUrl+"&start="+strconv.Itoa(i))
+			}
+
+		} else {
+			wg.Done()
+			fmt.Println("No review")
+			return
+		}
+
+		// ===================================
 		// Non Recommanded Review Scrap
 		// ===================================
 
@@ -300,35 +329,10 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 		nonRevURL := e.Request.URL.ResolveReference(nonUrl)
 
 		// Fist visit to non recommanded URL
-		fmt.Println("Non Recommmanded URL:", nonRevURL)
-		fmt.Println(">>>>>>>>>>>> ADD - non recommended first")
 		wg.Add(1)
 		go nonRecommandedReviewUrlCall(spider, wg, nonRevURL.String())
 
-		// ===================================
-		// Normal Review Scrap
-		// ===================================
-
-		// Prepare URL
-		RevUrl := "https://www.yelp.com/biz/" + businessId + "/review_feed?rl=en&sort_by=date_desc"
-
-		// Collect Review Count
-		jsonStr := e.ChildText("script[type=\"application/ld+json\"]")
-		re := regexp.MustCompile("\"reviewCount\":(\\d*)")
-		match := re.FindStringSubmatch(jsonStr)
-		reviewCount, err := strconv.Atoi(match[1])
-		if err != nil {
-			panic(err)
-		}
-		fmt.Println("Normal Reviews:", reviewCount)
-		fmt.Println("URL", RevUrl)
-
-		// Call all pages.
-		for i := 0; i < reviewCount; i += 10 {
-			wg.Add(1)
-			go normalReview(spider, wg, RevUrl+"&start="+strconv.Itoa(i))
-		}
-		fmt.Println(">>>>>>>>>>>> DONE - initial")
+		// Completing Initial call
 		wg.Done()
 	})
 	profile.Visit(spider.ProfileKey)
@@ -383,29 +387,26 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
 		nonReviewCount := 0
 
 		for _, v := range e.ChildTexts("h3") {
-			fmt.Println("H3 =", v)
 			if strings.Contains(v, "recommended") {
 				re := regexp.MustCompile("(\\d+)")
 				match := re.FindStringSubmatch(v)
-				count, err := strconv.Atoi(match[1])
-				if err != nil {
-					panic(err)
+				if len(match) >= 2 {
+					count, err := strconv.Atoi(match[1])
+					if err != nil {
+						panic(err)
+					}
+					nonReviewCount = count
 				}
-				nonReviewCount = count
-				fmt.Println("OK...", nonReviewCount)
 			}
 		}
 
 		fmt.Println("Non recommanded Reviews", nonReviewCount)
-		fmt.Println("Link", e.Request.URL.String())
 
 		for i := 0; i < nonReviewCount; i += 10 {
-			fmt.Println(">>>>>>>>>>>> ADD - non rec follow up")
 			wg.Add(1)
 			visitingUrl := e.Request.URL.String() + "?not_recommended_start=" + strconv.Itoa(i)
 			go nonRecommandedReviewUrlCallFollowup(spider, wg, visitingUrl)
 		}
-		fmt.Println(">>>>>>>>>>>> DONE - non rec first")
 		wg.Done()
 	})
 	linkCall.Visit(link)
@@ -419,7 +420,6 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup, lin
 	})
 	linkCall.OnHTML(`html`, func(e *colly.HTMLElement) {
 		nonReviewCount := len(e.ChildTexts(`div.not-recommended-reviews > ul.reviews > li`))
-		fmt.Println("Review Count", nonReviewCount, e.Request.URL.String())
 		wg.Add(nonReviewCount)
 		wg.Done()
 		fmt.Println("Non Counter", non_counter)

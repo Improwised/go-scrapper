@@ -109,12 +109,23 @@ type HistogramFormat struct {
 }
 
 type Primary struct {
-	Score         float32
-	Total_reviews int32
+	Score         float32 `json:"score"`
+	Total_reviews int32   `json:"total_revews"`
 }
 
 type Histogram struct {
-	Primary Primary
+	Primary Primary `json:"primary"`
+}
+
+type Meta struct {
+	Histogram          Histogram
+	Profile_key        string `json:"profile_key"`
+	Start_time         string `json:"start_time"`
+	Finish_time        string `json:"finish_time"`
+	Scraping_status    string `json:"scraping_status"`
+	Item_scraped_count int    `json:"item_scraped_count"`
+	Request_count      int    `json:"request_count"`
+	Response_bytes     int    `json:"response_bytes"`
 }
 
 func main() {
@@ -202,6 +213,7 @@ func getColly(proxy string) *colly.Collector {
 	c.WithTransport(transport)
 
 	c.OnRequest(func(r *colly.Request) {
+		requestCount += 1
 		fmt.Println("Visit - ", r.URL)
 		authKey := getFromProxy(proxy, "key")
 		basic := "Basic " + base64.StdEncoding.EncodeToString([]byte(authKey))
@@ -211,6 +223,11 @@ func getColly(proxy string) *colly.Collector {
 
 	c.OnError(func(r *colly.Response, e error) {
 		// log.Println("error:", e, r.Request.URL, string(r.Body))
+		responseBytes += len(r.Body)
+	})
+
+	c.OnResponse(func(r *colly.Response) {
+		responseBytes += len(r.Body)
 	})
 
 	return c
@@ -227,14 +244,20 @@ func updateAndPrintCnt(r *int, c *int, t int, a int) {
 }
 
 var (
-	reviews     []ReviewFomate
-	histogram   Histogram
-	spider      *Spider
-	rev_counter int
-	non_counter int
-	err_counter int
-	business_id string
-	scrapStatus string
+	reviews              []ReviewFomate
+	histogram            Histogram
+	spider               *Spider
+	rev_counter          int
+	non_counter          int
+	err_counter          int
+	minimal_review_count int
+	item_scraped_count   int
+	business_id          string
+	start_time           string
+	finish_time          string
+	scrapStatus          string
+	requestCount         int
+	responseBytes        int
 )
 
 func yelpSpiderRun(args, op string) {
@@ -251,10 +274,17 @@ func yelpSpiderRun(args, op string) {
 	// Profile URL Call
 	var wg sync.WaitGroup
 	wg.Add(1)
+	start_time = time.Now().UTC().String()
 	go callProfileURL(spider, &wg)
 	fmt.Println("Waiting...")
 	wg.Wait()
+	finish_time = time.Now().UTC().String()
 	fmt.Println("Profile Call done ! -- Count", len(reviews))
+	item_scraped_count = len(reviews)
+	if scrapStatus == "" {
+		scrapStatus = "SUCCESS_SCRAPED"
+	}
+	dumpMetaData(spider)
 	fmt.Println("Scrapping - ", scrapStatus)
 	// dumpReviews(spider)
 }
@@ -279,18 +309,18 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 		// ===================================
 		// Collecting Histogram
 		// ===================================
-		// scriptData := e.ChildText("script[type=\"application/ld+json\"]")
-		// scriptData = scriptData[strings.Index(scriptData, "{"):strings.Index(scriptData, "}}")]
-		// scriptData = scriptData + "}}"
-		// data := HistogramFormat{}
-		// err := json.Unmarshal([]byte(scriptData), &data)
-		// checkError(err)
-		// histogram := Histogram{}
-		// histogram.Primary = Primary{
-		// 	Score:         data.AggregateRating.RatingValue,
-		// 	Total_reviews: data.AggregateRating.ReviewCount,
-		// }
-		// fmt.Println("Histogram", histogram)
+		scriptData := e.ChildText("script[type=\"application/ld+json\"]")
+		scriptData = scriptData[strings.Index(scriptData, "{"):strings.Index(scriptData, "}{")]
+		scriptData = scriptData + "}"
+		data := HistogramFormat{}
+		err := json.Unmarshal([]byte(scriptData), &data)
+		checkError(err)
+		histogram.Primary = Primary{
+			Score:         data.AggregateRating.RatingValue,
+			Total_reviews: data.AggregateRating.ReviewCount,
+		}
+
+		fmt.Println("Histogram:", histogram)
 
 		// ===================================
 		// Normal Review Scrap
@@ -309,7 +339,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 				panic(err)
 			}
 			fmt.Println("Normal Reviews:", reviewCount)
-
+			minimal_review_count = reviewCount
 			// Call all pages.
 			for i := 0; i < reviewCount; i += 10 {
 				wg.Add(1)
@@ -407,6 +437,7 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
 		}
 
 		fmt.Println("Non recommanded Reviews", nonReviewCount)
+		minimal_review_count = nonReviewCount
 
 		for i := 0; i < nonReviewCount; i += 10 {
 			wg.Add(1)
@@ -549,4 +580,18 @@ func WriteDataToFileAsJSON(data interface{}, filedir string) (int, error) {
 		return 0, err
 	}
 	return n, nil
+}
+
+func dumpMetaData(spider *Spider) {
+	data := Meta{
+		Histogram:          histogram,
+		Profile_key:        spider.ProfileKey,
+		Item_scraped_count: item_scraped_count,
+		Scraping_status:    scrapStatus,
+		Start_time:         start_time,
+		Finish_time:        finish_time,
+		Request_count:      requestCount,
+		Response_bytes:     responseBytes,
+	}
+	WriteDataToFileAsJSON(data, "somthing-out-meta.json")
 }

@@ -109,18 +109,23 @@ type HistogramFormat struct {
 }
 
 type Primary struct {
-	Score         float32
-	Total_reviews int32
+	Score         float32 `json:"score"`
+	Total_reviews int32   `json:"total_revews"`
 }
 
 type Histogram struct {
-	Primary Primary
+	Primary Primary `json:"primary"`
 }
 
 type Meta struct {
-	Histogram                                             Histogram
-	Profile_key, Start_time, Finish_time, Scraping_status string
-	Item_scraped_count, Request_count, Response_bytes     int
+	Histogram          Histogram
+	Profile_key        string `json:"profile_key"`
+	Start_time         string `json:"start_time"`
+	Finish_time        string `json:"finish_time"`
+	Scraping_status    string `json:"scraping_status"`
+	Item_scraped_count int    `json:"item_scraped_count"`
+	Request_count      int    `json:"request_count"`
+	Response_bytes     int    `json:"response_bytes"`
 }
 
 func main() {
@@ -208,6 +213,7 @@ func getColly(proxy string) *colly.Collector {
 	c.WithTransport(transport)
 
 	c.OnRequest(func(r *colly.Request) {
+		requestCount += 1
 		fmt.Println("Visit - ", r.URL)
 		authKey := getFromProxy(proxy, "key")
 		basic := "Basic " + base64.StdEncoding.EncodeToString([]byte(authKey))
@@ -217,6 +223,11 @@ func getColly(proxy string) *colly.Collector {
 
 	c.OnError(func(r *colly.Response, e error) {
 		// log.Println("error:", e, r.Request.URL, string(r.Body))
+		responseBytes += len(r.Body)
+	})
+
+	c.OnResponse(func(r *colly.Response) {
+		responseBytes += len(r.Body)
 	})
 
 	return c
@@ -245,6 +256,8 @@ var (
 	start_time           string
 	finish_time          string
 	scrapStatus          string
+	requestCount         int
+	responseBytes        int
 )
 
 func yelpSpiderRun(args, op string) {
@@ -268,6 +281,9 @@ func yelpSpiderRun(args, op string) {
 	finish_time = time.Now().UTC().String()
 	fmt.Println("Profile Call done ! -- Count", len(reviews))
 	item_scraped_count = len(reviews)
+	if scrapStatus == "" {
+		scrapStatus = "SUCCESS_SCRAPED"
+	}
 	dumpMetaData(spider)
 	fmt.Println("Scrapping - ", scrapStatus)
 	// dumpReviews(spider)
@@ -567,49 +583,15 @@ func WriteDataToFileAsJSON(data interface{}, filedir string) (int, error) {
 }
 
 func dumpMetaData(spider *Spider) {
-	scraping_status := getScrapingStatus()
 	data := Meta{
 		Histogram:          histogram,
 		Profile_key:        spider.ProfileKey,
 		Item_scraped_count: item_scraped_count,
-		Scraping_status:    scraping_status,
+		Scraping_status:    scrapStatus,
 		Start_time:         start_time,
 		Finish_time:        finish_time,
+		Request_count:      requestCount,
+		Response_bytes:     responseBytes,
 	}
 	WriteDataToFileAsJSON(data, "somthing-out-meta.json")
-}
-
-func WriteMetaDataToFileAsJSON(data Meta, filedir string) (int, error) {
-	//write data as buffer to json encoder
-	buffer := new(bytes.Buffer)
-	encoder := json.NewEncoder(buffer)
-	// encoder.SetIndent("", "\t")
-
-	err := encoder.Encode(data)
-	if err != nil {
-		return 0, err
-	}
-	file, err := os.OpenFile(filedir, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0755)
-	if err != nil {
-		return 0, err
-	}
-	n, err := file.Write(buffer.Bytes())
-	if err != nil {
-		return 0, err
-	}
-	return n, nil
-}
-
-func getScrapingStatus() string {
-	var status string
-	if item_scraped_count > 0 {
-		status = "SUCCESS_SCRAPED"
-	} else {
-		if minimal_review_count > 0 {
-			status = "SCRAPE_FAILED"
-		} else {
-			status = "NO_REVIEWS"
-		}
-	}
-	return status
 }

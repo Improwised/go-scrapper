@@ -234,6 +234,7 @@ var (
 	non_counter int
 	err_counter int
 	business_id string
+	scrapStatus string
 )
 
 func yelpSpiderRun(args, op string) {
@@ -254,12 +255,17 @@ func yelpSpiderRun(args, op string) {
 	fmt.Println("Waiting...")
 	wg.Wait()
 	fmt.Println("Profile Call done ! -- Count", len(reviews))
-	dumpReviews(spider)
+	fmt.Println("Scrapping - ", scrapStatus)
+	// dumpReviews(spider)
 }
 
 func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 	profile := getColly(spider.Persona.Proxy)
 	profile.OnError(func(r *colly.Response, e error) {
+		fmt.Println("Status ", r.StatusCode)
+		if r.StatusCode == 404 {
+			scrapStatus = "PAGE_NOT_FOUND"
+		}
 		log.Println("error:", e, r.Request.URL, string(r.Body))
 		wg.Done() // for histogram
 	})
@@ -313,6 +319,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 		} else {
 			wg.Done()
 			fmt.Println("No review")
+			scrapStatus = "NO_REVIEWS"
 			return
 		}
 

@@ -118,10 +118,10 @@ type Histogram struct {
 }
 
 type Meta struct {
-	Histogram Histogram
+	Histogram                                             Histogram
 	Profile_key, Start_time, Finish_time, Scraping_status string
-	Item_scraped_count, Request_count, Response_bytes int
-}	
+	Item_scraped_count, Request_count, Response_bytes     int
+}
 
 func main() {
 	var cmd = &cobra.Command{
@@ -233,18 +233,18 @@ func updateAndPrintCnt(r *int, c *int, t int, a int) {
 }
 
 var (
-	reviews     []ReviewFomate
-	histogram   Histogram
-	spider      *Spider
-	rev_counter int
-	non_counter int
-	err_counter int
+	reviews              []ReviewFomate
+	histogram            Histogram
+	spider               *Spider
+	rev_counter          int
+	non_counter          int
+	err_counter          int
 	minimal_review_count int
-	item_scraped_count int
-	business_id string
-	start_time string
-	finish_time string
-	scrapStatus string
+	item_scraped_count   int
+	business_id          string
+	start_time           string
+	finish_time          string
+	scrapStatus          string
 )
 
 func yelpSpiderRun(args, op string) {
@@ -268,7 +268,7 @@ func yelpSpiderRun(args, op string) {
 	finish_time = time.Now().UTC().String()
 	fmt.Println("Profile Call done ! -- Count", len(reviews))
 	item_scraped_count = len(reviews)
-	dumpMetaData()
+	dumpMetaData(spider)
 	fmt.Println("Scrapping - ", scrapStatus)
 	// dumpReviews(spider)
 }
@@ -294,17 +294,17 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 		// Collecting Histogram
 		// ===================================
 		scriptData := e.ChildText("script[type=\"application/ld+json\"]")
-        scriptData = scriptData[strings.Index(scriptData, "{") : strings.Index(scriptData, "}{")]
-        scriptData = scriptData + "}"
+		scriptData = scriptData[strings.Index(scriptData, "{"):strings.Index(scriptData, "}{")]
+		scriptData = scriptData + "}"
 		data := HistogramFormat{}
-        err := json.Unmarshal([]byte(scriptData), &data)
-        checkError(err)
-        histogram.Primary = Primary {
-            Score: data.AggregateRating.RatingValue,
-            Total_reviews: data.AggregateRating.ReviewCount,
-        }
+		err := json.Unmarshal([]byte(scriptData), &data)
+		checkError(err)
+		histogram.Primary = Primary{
+			Score:         data.AggregateRating.RatingValue,
+			Total_reviews: data.AggregateRating.ReviewCount,
+		}
 
-        fmt.Println("Histogram:", histogram)
+		fmt.Println("Histogram:", histogram)
 
 		// ===================================
 		// Normal Review Scrap
@@ -566,17 +566,17 @@ func WriteDataToFileAsJSON(data interface{}, filedir string) (int, error) {
 	return n, nil
 }
 
-func dumpMetaData() {
+func dumpMetaData(spider *Spider) {
 	scraping_status := getScrapingStatus()
 	data := Meta{
-		Histogram: histogram,
-		Profile_key: spider.ProfileKey,
+		Histogram:          histogram,
+		Profile_key:        spider.ProfileKey,
 		Item_scraped_count: item_scraped_count,
-		Scraping_status: scraping_status,
-		Start_time: start_time,
-		Finish_time: finish_time,
+		Scraping_status:    scraping_status,
+		Start_time:         start_time,
+		Finish_time:        finish_time,
 	}
-	WriteMetaDataToFileAsJSON(data, "somthing-out-meta.json")
+	WriteDataToFileAsJSON(data, "somthing-out-meta.json")
 }
 
 func WriteMetaDataToFileAsJSON(data Meta, filedir string) (int, error) {
@@ -613,4 +613,3 @@ func getScrapingStatus() string {
 	}
 	return status
 }
-

@@ -224,11 +224,19 @@ func getColly(proxy string) *colly.Collector {
 	c.OnError(func(r *colly.Response, e error) {
 		// log.Println("error:", e, r.Request.URL, string(r.Body))
 		responseBytes += len(r.Body)
+
+		fmt.Println("=========>", r.StatusCode)
 	})
 
 	c.OnResponse(func(r *colly.Response) {
 		responseBytes += len(r.Body)
 	})
+
+	// c.Limit(&colly.LimitRule{
+	// 	DomainGlob:  "*",
+	// 	Parallelism: 2,
+	// 	RandomDelay: 5 * time.Second,
+	// })
 
 	return c
 }
@@ -259,6 +267,9 @@ var (
 	requestCount         int
 	responseBytes        int
 )
+
+const MAX_COUNT = 100
+const REV_CNT_DIV_BY = 50
 
 func yelpSpiderRun(args, op string) {
 
@@ -341,9 +352,13 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 			fmt.Println("Normal Reviews:", reviewCount)
 			minimal_review_count = reviewCount
 			// Call all pages.
+			var reqDelay int32 = 0
 			for i := 0; i < reviewCount; i += 10 {
 				wg.Add(1)
-				go normalReview(spider, wg, RevUrl+"&start="+strconv.Itoa(i))
+				if reviewCount > MAX_COUNT {
+					reqDelay = int32(i / REV_CNT_DIV_BY)
+				}
+				go normalReview(spider, wg, RevUrl+"&start="+strconv.Itoa(i), reqDelay)
 			}
 
 		} else {
@@ -374,7 +389,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 	profile.Visit(spider.ProfileKey)
 }
 
-func normalReview(spider *Spider, wg *sync.WaitGroup, link string) {
+func normalReview(spider *Spider, wg *sync.WaitGroup, link string, n int32) {
 	linkCall := getColly(spider.Persona.Proxy)
 	linkCall.OnError(func(r *colly.Response, e error) {
 		log.Println("error:", e, r.Request.URL, string(r.Body))
@@ -405,9 +420,12 @@ func normalReview(spider *Spider, wg *sync.WaitGroup, link string) {
 			reviews = append(reviews, review)
 			rev_counter += 1
 		}
-		fmt.Println("Non Counter", rev_counter)
+		fmt.Println("Count", (rev_counter + non_counter))
 		wg.Done()
 	})
+	if n > 0 {
+		time.Sleep(time.Duration(n) * time.Second)
+	}
 	linkCall.Visit(link)
 }
 
@@ -439,17 +457,21 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
 		fmt.Println("Non recommanded Reviews", nonReviewCount)
 		minimal_review_count = nonReviewCount
 
+		var nonReqDelay int32 = 0
 		for i := 0; i < nonReviewCount; i += 10 {
 			wg.Add(1)
 			visitingUrl := e.Request.URL.String() + "?not_recommended_start=" + strconv.Itoa(i)
-			go nonRecommandedReviewUrlCallFollowup(spider, wg, visitingUrl)
+			if nonReviewCount > MAX_COUNT {
+				nonReqDelay = int32(i / REV_CNT_DIV_BY)
+			}
+			go nonRecommandedReviewUrlCallFollowup(spider, wg, visitingUrl, nonReqDelay)
 		}
 		wg.Done()
 	})
 	linkCall.Visit(link)
 }
 
-func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup, link string) {
+func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup, link string, n int32) {
 	linkCall := getColly(spider.Persona.Proxy)
 	linkCall.OnError(func(r *colly.Response, e error) {
 		log.Println("error:", e, r.Request.URL, string(r.Body))
@@ -459,7 +481,7 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup, lin
 		nonReviewCount := len(e.ChildTexts(`div.not-recommended-reviews > ul.reviews > li`))
 		wg.Add(nonReviewCount)
 		wg.Done()
-		fmt.Println("Non Counter", non_counter)
+		fmt.Println("Count", (rev_counter + non_counter))
 	})
 	linkCall.OnHTML(`div.not-recommended-reviews > ul.reviews > li`, func(e *colly.HTMLElement) {
 		author_id := e.ChildAttr("div.review-sidebar .user-display-name", "data-hovercard-id")
@@ -537,6 +559,9 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup, lin
 		non_counter += 1
 		wg.Done()
 	})
+	if n > 0 {
+		time.Sleep(time.Duration(n) * time.Second)
+	}
 	linkCall.Visit(link)
 }
 

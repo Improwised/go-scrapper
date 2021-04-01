@@ -91,13 +91,18 @@ type PreviousReview struct {
 
 // Review stores information about a review
 type ReviewFomate struct {
-	Author_name, Text, Source_date string
-	Review_id, Author_id, Photos   string
-	Not_recommended                bool
-	Rating                         int
-	Scraped_at, Posted_at          int64
-	OwnerReply                     OwnerReply
-	PreviousReview                 PreviousReview
+	Author_name     string     `json:"author_name"`
+	Text            string     `json:"text"`
+	Source_date     string     `json:"source_date"`
+	Review_id       string     `json:"review_id"`
+	Author_id       string     `json:"author_id"`
+	Photos          string     `json:"photos"`
+	Not_recommended bool       `json:"not_recommended"`
+	Rating          int        `json:"rating"`
+	Scraped_at      int64      `json:"scraped_at"`
+	Posted_at       int64      `json:"posted_at"`
+	OwnerReply      OwnerReply `json:"responses"`
+	PreviousReview  PreviousReview
 }
 
 type HistogramFormat struct {

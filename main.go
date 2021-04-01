@@ -64,7 +64,9 @@ type Review struct {
 	} `json:"user"`
 	Scraped_at, Posted_at int64
 	OwnerReply            []struct {
-		Author_name string `json:"displayName"`
+		Author_name struct{
+            Name string `json:"displayName"`
+        } `json:"owner"`
 		Text        string `json:"comment"`
 		Source_date string `json:"localizedDate"`
 	} `json:"businessOwnerReplies"`
@@ -78,8 +80,7 @@ type Review struct {
 }
 
 type OwnerReply struct {
-	Author_name, Text string
-	Posted_at         int64
+	Author_name, Text, Posted_at string
 }
 
 // structure for previous review
@@ -397,6 +398,27 @@ func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 				Scraped_at:  int64(time.Now().Unix()),
 			}
 
+			for _, obj := range obj.OwnerReply {
+	            response := OwnerReply{
+	                Author_name: obj.Author_name.Name,
+	                Text: 		 obj.Text,
+	                Posted_at:   obj.Source_date,
+	            }
+	            review.OwnerReply = response
+	        }
+	        
+	        for _, obj := range obj.PreviousReview {
+	            posted_at, err := time.Parse("1/2/2006", obj.Source_date)
+	            checkError(err)
+	            
+	            previous := PreviousReview{
+	                Text:      obj.Comment.Text,
+	                Rating:    obj.Rating,               
+	                Posted_at: int64(posted_at.Unix()),
+	            }
+	            review.PreviousReview = previous
+	        }
+
 			safeReviewAdd(review)
 			// reviews = append(reviews, review)
 			rev_counter += 1
@@ -496,13 +518,10 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup) *co
 
 		if comments != "" {
 			source_date := e.ChildText("div.biz-owner-reply span.bullet-after")
-			posted_at, err := time.Parse("1/2/2006", source_date)
-			checkError(err)
-
 			response := OwnerReply{
 				Author_name: strings.Replace(e.ChildText("div.biz-owner-reply-header strong"), "Comment from ", "", -1),
 				Text:        e.ChildText("span.js-content-toggleable.hidden"),
-				Posted_at:   int64(posted_at.Unix()),
+				Posted_at:   source_date,
 			}
 
 			review.OwnerReply = response

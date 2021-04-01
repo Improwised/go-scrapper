@@ -229,7 +229,7 @@ func getColly(proxy string) *colly.Collector {
 
 	c.Limit(&colly.LimitRule{
 		DomainGlob:  "*",
-		Parallelism: 3,
+		Parallelism: 5,
 		Delay:       2 * time.Second,
 	})
 
@@ -251,6 +251,7 @@ var (
 	scrapStatus          string
 	requestCount         int
 	responseBytes        int
+	mu                   sync.Mutex
 )
 
 func yelpSpiderRun(args, op string) {
@@ -396,7 +397,8 @@ func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 				Scraped_at:  int64(time.Now().Unix()),
 			}
 
-			reviews = append(reviews, review)
+			safeReviewAdd(review)
+			// reviews = append(reviews, review)
 			rev_counter += 1
 		}
 		fmt.Println("Count", (rev_counter + non_counter))
@@ -528,7 +530,8 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup) *co
 			review.PreviousReview = previous_review
 		}
 
-		reviews = append(reviews, review)
+		safeReviewAdd(review)
+		// reviews = append(reviews, review)
 		non_counter += 1
 		wg.Done() // done NON_REV_COUNT call [success]
 	})
@@ -590,4 +593,10 @@ func dumpMetaData(spider *Spider) {
 	fnameIndex := len(spider.filename) - len(mainFileExt)
 	metaFile := spider.filename[0:fnameIndex] + "-meta.json"
 	WriteDataToFileAsJSON(data, metaFile)
+}
+
+func safeReviewAdd(review ReviewFomate) {
+	mu.Lock()
+	reviews = append(reviews, review)
+	mu.Unlock()
 }

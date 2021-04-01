@@ -3,17 +3,16 @@ package main
 import (
 	"bytes"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -118,14 +117,14 @@ type Histogram struct {
 }
 
 type Meta struct {
-	Histogram          Histogram
-	Profile_key        string `json:"profile_key"`
-	Start_time         string `json:"start_time"`
-	Finish_time        string `json:"finish_time"`
-	Scraping_status    string `json:"scraping_status"`
-	Item_scraped_count int    `json:"item_scraped_count"`
-	Request_count      int    `json:"request_count"`
-	Response_bytes     int    `json:"response_bytes"`
+	Histogram          Histogram `json:"histogram"`
+	Profile_key        string    `json:"profile_key"`
+	Start_time         string    `json:"start_time"`
+	Finish_time        string    `json:"finish_time"`
+	Scraping_status    string    `json:"scraping_status"`
+	Item_scraped_count int       `json:"item_scraped_count"`
+	Request_count      int       `json:"request_count"`
+	Response_bytes     int       `json:"response_bytes"`
 }
 
 func main() {
@@ -182,30 +181,23 @@ func getFromProxy(proxy, key string) string {
 		ans = accessKey
 		break
 	}
-	// fmt.Println("Proxy(" + key + "): " + ans)
 	return ans
 }
 
 func getColly(proxy string) *colly.Collector {
 	c := colly.NewCollector(
 		colly.AllowedDomains("yelp.com", "www.yelp.com"),
+		colly.Async(true),
 	)
 	proxyUrl := getFromProxy(proxy, "url")
-	// fmt.Println(proxyUrl)
 	proxyURL, err := url.Parse(proxyUrl)
-	checkError(err)
-
-	//caCert for ssl certification
-	caCert, err := ioutil.ReadFile("zyte-proxy-ca.crt")
-	caCertPool := x509.NewCertPool()
-	caCertPool.AppendCertsFromPEM(caCert)
 	checkError(err)
 
 	// create transport for set proxy and certificate
 	transport := &http.Transport{
 		Proxy: http.ProxyURL(proxyURL),
 		TLSClientConfig: &tls.Config{
-			RootCAs: caCertPool,
+			InsecureSkipVerify: true,
 		},
 	}
 
@@ -222,9 +214,7 @@ func getColly(proxy string) *colly.Collector {
 	})
 
 	c.OnError(func(r *colly.Response, e error) {
-		// log.Println("error:", e, r.Request.URL, string(r.Body))
 		responseBytes += len(r.Body)
-
 		fmt.Println("=========>", r.StatusCode)
 	})
 
@@ -232,23 +222,13 @@ func getColly(proxy string) *colly.Collector {
 		responseBytes += len(r.Body)
 	})
 
-	// c.Limit(&colly.LimitRule{
-	// 	DomainGlob:  "*",
-	// 	Parallelism: 2,
-	// 	RandomDelay: 5 * time.Second,
-	// })
+	c.Limit(&colly.LimitRule{
+		DomainGlob:  "*",
+		Parallelism: 3,
+		Delay:       2 * time.Second,
+	})
 
 	return c
-}
-
-func updateAndPrintCnt(r *int, c *int, t int, a int) {
-	if t == 1 {
-		*r += a
-	}
-	if t == 2 {
-		*c += a
-	}
-	fmt.Println("Counters", *r, *c)
 }
 
 var (
@@ -268,9 +248,6 @@ var (
 	responseBytes        int
 )
 
-const MAX_COUNT = 100
-const REV_CNT_DIV_BY = 50
-
 func yelpSpiderRun(args, op string) {
 
 	// Initialize variables
@@ -284,20 +261,20 @@ func yelpSpiderRun(args, op string) {
 
 	// Profile URL Call
 	var wg sync.WaitGroup
-	wg.Add(1)
+	wg.Add(1) // add PROFILE call
 	start_time = time.Now().UTC().String()
-	go callProfileURL(spider, &wg)
+	callProfileURL(spider, &wg)
 	fmt.Println("Waiting...")
-	wg.Wait()
+	wg.Wait() // Wait for completing all calls
 	finish_time = time.Now().UTC().String()
 	fmt.Println("Profile Call done ! -- Count", len(reviews))
 	item_scraped_count = len(reviews)
 	if scrapStatus == "" {
 		scrapStatus = "SUCCESS_SCRAPED"
 	}
+	dumpReviews(spider.filename)
 	dumpMetaData(spider)
 	fmt.Println("Scrapping - ", scrapStatus)
-	// dumpReviews(spider)
 }
 
 func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
@@ -308,7 +285,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 			scrapStatus = "PAGE_NOT_FOUND"
 		}
 		log.Println("error:", e, r.Request.URL, string(r.Body))
-		wg.Done() // for histogram
+		wg.Done() // done PROFILE call [failed]
 	})
 	profile.OnHTML(`html`, func(e *colly.HTMLElement) {
 		fmt.Println("Response - ", e.Request.URL.String())
@@ -352,17 +329,14 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 			fmt.Println("Normal Reviews:", reviewCount)
 			minimal_review_count = reviewCount
 			// Call all pages.
-			var reqDelay int32 = 0
+			var reviewCollector = normalReview(spider, wg)
 			for i := 0; i < reviewCount; i += 10 {
-				wg.Add(1)
-				if reviewCount > MAX_COUNT {
-					reqDelay = int32(i / REV_CNT_DIV_BY)
-				}
-				go normalReview(spider, wg, RevUrl+"&start="+strconv.Itoa(i), reqDelay)
+				wg.Add(1) // add REVIEW call
+				reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(i))
 			}
 
 		} else {
-			wg.Done()
+			wg.Done() // done PROFILE call [success - without reviews]
 			fmt.Println("No review")
 			scrapStatus = "NO_REVIEWS"
 			return
@@ -379,23 +353,23 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 		}
 		nonRevURL := e.Request.URL.ResolveReference(nonUrl)
 
-		// Fist visit to non recommanded URL
-		wg.Add(1)
-		go nonRecommandedReviewUrlCall(spider, wg, nonRevURL.String())
+		wg.Add(1) // add NON_RECOMMENDED_ONCE call
 
-		// Completing Initial call
-		wg.Done()
+		// Fist visit to non recommanded URL
+		nonRecommandedReviewUrlCall(spider, wg, nonRevURL.String())
+
+		wg.Done() // done PROFILE call [success]
 	})
 	profile.Visit(spider.ProfileKey)
 }
 
-func normalReview(spider *Spider, wg *sync.WaitGroup, link string, n int32) {
+func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 	linkCall := getColly(spider.Persona.Proxy)
 	linkCall.OnError(func(r *colly.Response, e error) {
 		log.Println("error:", e, r.Request.URL, string(r.Body))
 		ilink := r.Request.URL.String()
 		fmt.Println("URL Error:", ilink)
-		wg.Done()
+		wg.Done() // done REVIEW call [failed]
 	})
 	linkCall.OnResponse(func(r *colly.Response) {
 		data := &Reviews{}
@@ -421,19 +395,16 @@ func normalReview(spider *Spider, wg *sync.WaitGroup, link string, n int32) {
 			rev_counter += 1
 		}
 		fmt.Println("Count", (rev_counter + non_counter))
-		wg.Done()
+		wg.Done() // done REVIEW call [success]
 	})
-	if n > 0 {
-		time.Sleep(time.Duration(n) * time.Second)
-	}
-	linkCall.Visit(link)
+	return linkCall
 }
 
 func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string) {
 	linkCall := getColly(spider.Persona.Proxy)
 	linkCall.OnError(func(r *colly.Response, e error) {
 		log.Println("error:", e, r.Request.URL, string(r.Body))
-		wg.Done()
+		wg.Done() // done NON_RECOMMENDED_ONCE call [failed]
 	})
 	linkCall.OnHTML(`html`, func(e *colly.HTMLElement) {
 		fmt.Println("Response - ", e.Request.URL.String())
@@ -457,30 +428,27 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
 		fmt.Println("Non recommanded Reviews", nonReviewCount)
 		minimal_review_count = nonReviewCount
 
-		var nonReqDelay int32 = 0
+		nonRecommandedCollector := nonRecommandedReviewUrlCallFollowup(spider, wg)
 		for i := 0; i < nonReviewCount; i += 10 {
-			wg.Add(1)
+			wg.Add(1) // add NON_RECOMMENDED_REV call
 			visitingUrl := e.Request.URL.String() + "?not_recommended_start=" + strconv.Itoa(i)
-			if nonReviewCount > MAX_COUNT {
-				nonReqDelay = int32(i / REV_CNT_DIV_BY)
-			}
-			go nonRecommandedReviewUrlCallFollowup(spider, wg, visitingUrl, nonReqDelay)
+			nonRecommandedCollector.Visit(visitingUrl)
 		}
-		wg.Done()
+		wg.Done() // done NON_RECOMMENDED_ONCE call [success]
 	})
 	linkCall.Visit(link)
 }
 
-func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup, link string, n int32) {
+func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 	linkCall := getColly(spider.Persona.Proxy)
 	linkCall.OnError(func(r *colly.Response, e error) {
 		log.Println("error:", e, r.Request.URL, string(r.Body))
-		wg.Done()
+		wg.Done() // done NON_RECOMMENDED_REV call [failed]
 	})
 	linkCall.OnHTML(`html`, func(e *colly.HTMLElement) {
 		nonReviewCount := len(e.ChildTexts(`div.not-recommended-reviews > ul.reviews > li`))
-		wg.Add(nonReviewCount)
-		wg.Done()
+		wg.Add(nonReviewCount) // add NON_REV_COUNT call
+		wg.Done()              // done NON_RECOMMENDED_REV call [sucecss]
 		fmt.Println("Count", (rev_counter + non_counter))
 	})
 	linkCall.OnHTML(`div.not-recommended-reviews > ul.reviews > li`, func(e *colly.HTMLElement) {
@@ -557,12 +525,9 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup, lin
 
 		reviews = append(reviews, review)
 		non_counter += 1
-		wg.Done()
+		wg.Done() // done NON_REV_COUNT call [success]
 	})
-	if n > 0 {
-		time.Sleep(time.Duration(n) * time.Second)
-	}
-	linkCall.Visit(link)
+	return linkCall
 }
 
 func checkError(err error) {
@@ -575,14 +540,12 @@ func checkError(err error) {
 	}
 }
 
-func dumpReviews(spider *Spider) {
+func dumpReviews(fname string) {
 	for _, v := range reviews {
-		fmt.Println(v)
-		n, err := WriteDataToFileAsJSON(v, spider.filename)
+		_, err := WriteDataToFileAsJSON(v, fname)
 		if err != nil {
 			panic(err)
 		}
-		print("Written Count", n)
 	}
 }
 
@@ -618,5 +581,8 @@ func dumpMetaData(spider *Spider) {
 		Request_count:      requestCount,
 		Response_bytes:     responseBytes,
 	}
-	WriteDataToFileAsJSON(data, "somthing-out-meta.json")
+	mainFileExt := filepath.Ext(spider.filename)
+	fnameIndex := len(spider.filename) - len(mainFileExt)
+	metaFile := spider.filename[0:fnameIndex] + "-meta.json"
+	WriteDataToFileAsJSON(data, metaFile)
 }

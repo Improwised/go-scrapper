@@ -62,7 +62,6 @@ type Review struct {
 	User        struct {
 		Author_name string `json:"markupDisplayName"`
 	} `json:"user"`
-	Scraped_at, Posted_at int64
 	OwnerReply            []struct {
 		Author_name struct{
             Name string `json:"displayName"`
@@ -74,20 +73,34 @@ type Review struct {
 		Comment struct {
 			Text string `json:"text"`
 		}
+		User        struct {
+			Author_name string `json:"markupDisplayName"`
+		} `json:"user"`
+		Photos      string `json:"photosUrl"`
+		Author_id   string `json:"userId"`
+		Review_id   string `json:"id"`
 		Rating      int    `json:"rating"`
 		Source_date string `json:"localizedDate"`
+		OwnerReply            []struct {
+			Author_name struct{
+	            Name string `json:"displayName"`
+	        } `json:"owner"`
+			Text        string `json:"comment"`
+			Source_date string `json:"localizedDate"`
+		} `json:"businessOwnerReplies"`
 	} `json:"previousReviews"`
 }
 
 type OwnerReply struct {
-	Author_name, Text, Posted_at string
+	Author_name string 	`json:"author_name"`
+	Text string 		`json:"text"`
+	Posted_at string 	`json:"posted_at"`
 }
 
 // structure for previous review
-type PreviousReview struct {
-	Text      string
-	Rating    int
-	Posted_at int64
+type PreviousReviewFomate struct {
+	Parent_id       string     `json:"parent_id"`
+	ReviewFomate
 }
 
 // Review stores information about a review
@@ -103,7 +116,6 @@ type ReviewFomate struct {
 	Scraped_at      int64      `json:"scraped_at"`
 	Posted_at       int64      `json:"posted_at"`
 	OwnerReply      OwnerReply `json:"responses"`
-	PreviousReview  PreviousReview
 }
 
 type HistogramFormat struct {
@@ -238,7 +250,7 @@ func getColly(proxy string) *colly.Collector {
 }
 
 var (
-	reviews              []ReviewFomate
+	reviews              []interface{}
 	histogram            Histogram
 	spider               *Spider
 	rev_counter          int
@@ -407,16 +419,35 @@ func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 	            review.OwnerReply = response
 	        }
 	        
-	        for _, obj := range obj.PreviousReview {
-	            posted_at, err := time.Parse("1/2/2006", obj.Source_date)
+	        for _, preObj := range obj.PreviousReview {
+	            posted_at, err := time.Parse("1/2/2006", preObj.Source_date)
 	            checkError(err)
 	            
-	            previous := PreviousReview{
-	                Text:      obj.Comment.Text,
-	                Rating:    obj.Rating,               
-	                Posted_at: int64(posted_at.Unix()),
+	            previous := PreviousReviewFomate{
+	            	Parent_id: obj.Review_id,
+	            	ReviewFomate: ReviewFomate{
+	            		Review_id:   preObj.Review_id,
+						Author_id:   preObj.Author_id,
+						Author_name: preObj.User.Author_name,
+						Text:        preObj.Comment.Text,
+						Rating:      preObj.Rating,
+						Source_date: preObj.Source_date,
+						Photos:      preObj.Photos,
+						Posted_at:   int64(posted_at.Unix()),
+						Scraped_at:  int64(time.Now().Unix()),
+	            	},
 	            }
-	            review.PreviousReview = previous
+
+	            for _, obj := range preObj.OwnerReply {
+		            response := OwnerReply{
+		                Author_name: obj.Author_name.Name,
+		                Text: 		 obj.Text,
+		                Posted_at:   obj.Source_date,
+		            }
+		            previous.OwnerReply = response
+	        	}
+
+	            safePreviousReviewAdd(previous)
 	        }
 
 			safeReviewAdd(review)
@@ -528,26 +559,26 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup) *co
 		}
 
 		// if review has previous review
-		var previous string
-		previous = e.ChildText("div.review-wrapper div.previous-review span.js-expandable-comment span.js-content-toggleable")
+		// var previous string
+		// previous = e.ChildText("div.review-wrapper div.previous-review span.js-expandable-comment span.js-content-toggleable")
 
-		if previous != "" {
-			date := strings.Fields(e.ChildText("div.review-wrapper div.previous-review .rating-qualifier"))
-			source_date := date[0]
-			posted_at, err := time.Parse("1/2/2006", source_date)
-			checkError(err)
+		// if previous != "" {
+		// 	date := strings.Fields(e.ChildText("div.review-wrapper div.previous-review .rating-qualifier"))
+		// 	source_date := date[0]
+		// 	posted_at, err := time.Parse("1/2/2006", source_date)
+		// 	checkError(err)
 
-			rat := re.FindStringSubmatch(e.ChildAttr(".previous-review .biz-rating .i-stars", "class"))[1]
-			rating, _ := strconv.Atoi(rat)
+		// 	rat := re.FindStringSubmatch(e.ChildAttr(".previous-review .biz-rating .i-stars", "class"))[1]
+		// 	rating, _ := strconv.Atoi(rat)
 
-			previous_review := PreviousReview{
-				Text:      previous,
-				Rating:    rating,
-				Posted_at: int64(posted_at.Unix()),
-			}
+		// 	previous_review := PreviousReview{
+		// 		Text:      previous,
+		// 		Rating:    rating,
+		// 		Posted_at: int64(posted_at.Unix()),
+		// 	}
 
-			review.PreviousReview = previous_review
-		}
+		// 	review.PreviousReview = previous_review
+		// }
 
 		safeReviewAdd(review)
 		// reviews = append(reviews, review)
@@ -615,6 +646,12 @@ func dumpMetaData(spider *Spider) {
 }
 
 func safeReviewAdd(review ReviewFomate) {
+	mu.Lock()
+	reviews = append(reviews, review)
+	mu.Unlock()
+}
+
+func safePreviousReviewAdd(review PreviousReviewFomate) {
 	mu.Lock()
 	reviews = append(reviews, review)
 	mu.Unlock()

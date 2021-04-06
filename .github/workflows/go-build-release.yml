@@ -28,7 +28,7 @@ jobs:
       with:
         title: "Release ${{ RELEASE_TAG }}"
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        draft: true
+        draft: false
         prerelease: false
         automatic_release_tag: "latest"
         files: |

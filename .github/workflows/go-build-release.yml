@@ -18,10 +18,9 @@ jobs:
         go-version: 1.15
 
     - name: Build
-      run: go build main.go
-
-    - name: Set output
-      run: echo ::set-output name=tag::${GITHUB_REF#refs/*/}
+      run: |
+        go build main.go
+        echo ::set-output name=tag::${GITHUB_REF#refs/*/}
 
     - name: Automatic Releases
       uses: marvinpinto/action-automatic-releases@latest

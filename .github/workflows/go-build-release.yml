@@ -18,14 +18,13 @@ jobs:
 
     - name: Build
       run: go build main.go
-      
+
     - name: Automatic Releases
       uses: marvinpinto/action-automatic-releases@latest
       with:
-        repo_token: "${{ secrets.GITHUB_TOKEN }}"
+        repo_token: "${{ secrets.MY_TOKEN }}"
         draft: true
         prerelease: false
+        automatic_release_tag: "latest"
         files: |
           main
-                    
-          

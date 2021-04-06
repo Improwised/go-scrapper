@@ -21,12 +21,12 @@ jobs:
       run: go build main.go
 
     - name: Set output
-      run: echo ::set-output name=tag::${GITHUB_REF#refs/*/}
+      run: echo ::set-output name=RELEASE_TAG::${GITHUB_REF#refs/*/}
 
     - name: Automatic Releases
       uses: marvinpinto/action-automatic-releases@latest
       with:
-        title: "Release ${{ steps.vars.outputs.tag }}"
+        title: "Release ${{ RELEASE_TAG }}"
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
         draft: true
         prerelease: false

@@ -2,7 +2,8 @@ name: Go
 
 on:
   push:
-    branches: [ master ]
+    tags:
+      - 'v*.*.*'
 
 jobs:
 
@@ -19,10 +20,18 @@ jobs:
     - name: Build
       run: go build main.go
 
+    - name: Set output
+      id: vars
+      run: echo ::set-output name=tag::${GITHUB_REF#refs/*/}
+
+    - name: Check output
+      env:
+        RELEASE_VERSION: ${{ steps.vars.outputs.tag }}
+
     - name: Automatic Releases
       uses: marvinpinto/action-automatic-releases@latest
       with:
-        title: "Release ${{ github.event.release.tag_name }}"
+        title: "Release ${{ RELEASE_VERSION }}-${{ steps.vars.outputs.tag }}"
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
         draft: true
         prerelease: false

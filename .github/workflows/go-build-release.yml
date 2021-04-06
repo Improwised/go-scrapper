@@ -26,10 +26,10 @@ jobs:
     - name: Automatic Releases
       uses: marvinpinto/action-automatic-releases@latest
       with:
-        title: "Release ${{ github.event.ref }}"
+        title: "Release ${{ github.event.release.tag_name }}"
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
         draft: false
         prerelease: false
-        automatic_release_tag: "${{ github.event.ref }}"
+        automatic_release_tag: "${{ github.event.release.tag_name }}"
         files: |
           main

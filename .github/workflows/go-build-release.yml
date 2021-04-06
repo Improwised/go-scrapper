@@ -26,7 +26,7 @@ jobs:
     - name: Automatic Releases
       uses: marvinpinto/action-automatic-releases@latest
       with:
-        title: "Release ${{ RELEASE_VERSION }}-${{ steps.vars.outputs.tag }}"
+        title: "Release ${{ steps.vars.outputs.tag }}"
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
         draft: true
         prerelease: false

@@ -23,10 +23,6 @@ jobs:
     - name: Set output
       run: echo ::set-output name=tag::${GITHUB_REF#refs/*/}
 
-    - name: Check output
-      env:
-        RELEASE_VERSION: ${{ steps.vars.outputs.tag }}
-
     - name: Automatic Releases
       uses: marvinpinto/action-automatic-releases@latest
       with:

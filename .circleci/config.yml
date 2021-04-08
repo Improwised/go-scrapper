@@ -20,7 +20,17 @@ jobs:
       - run:
           name: Run Build
           command: |
+            apk update && apk add git
             go get github.com/tcnksm/ghr
             go build main.go
             ghr -t ${GITHUB_TOKEN} -u ${CIRCLE_PROJECT_USERNAME} -r ${CIRCLE_PROJECT_REPONAME} -c ${CIRCLE_SHA1} -delete $(git describe --tag) ./main
-
+workflows:
+  version: 2
+  main:
+    jobs:
+      - build:
+          filters:
+            branches:
+              only: master
+            tags:
+              only: /^\d+\.\d+\.\d+$/

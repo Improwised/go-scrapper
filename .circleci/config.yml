@@ -22,7 +22,7 @@ jobs:
           command: |
             apk update && apk add git
             go get github.com/tcnksm/ghr
-            go build main.go
+            CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build main.go
             ghr -t "${GITHUB_TOKEN}" -u "${CIRCLE_PROJECT_USERNAME}" -r "${CIRCLE_PROJECT_REPONAME}" -c "${CIRCLE_SHA1}" $(git describe --tag) ./main
 workflows:
   version: 2

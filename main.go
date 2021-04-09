@@ -157,13 +157,15 @@ func main() {
 			// Do Stuff Here
 			additional_args := cmd.Flag("additional-args").Value.String()
 			op := cmd.Flag("output").Value.String()
-			yelpSpiderRun(additional_args, op)
+			setvar := cmd.Flag("setvar").Value.String()
+			yelpSpiderRun(additional_args, op, setvar)
 		},
 	}
 
 	// Setup arguments
 	cmd.PersistentFlags().StringP("additional-args", "a", "", "NAME=VALUE as additional Arguments.")
 	cmd.PersistentFlags().StringP("output", "o", "", "output filename.")
+	cmd.PersistentFlags().StringP("setvar", "s", "", "NAME=VALUE as setting variable .")
 
 	// Execute command and handle Error
 	if err := cmd.Execute(); err != nil {
@@ -175,7 +177,7 @@ func setPlace(args string, sp *Spider) {
 	additionalArgs := strings.Split(args, "=")
 	fmt.Println(args)
 	if len(additionalArgs) >= 2 {
-		_, p := additionalArgs[0], additionalArgs[1]
+		p := strings.Join(additionalArgs[1:], "=")
 		place, err := base64.StdEncoding.DecodeString(p)
 		if err != nil {
 			panic(err)
@@ -270,7 +272,7 @@ var (
 	mu                   sync.Mutex
 )
 
-func yelpSpiderRun(args, op string) {
+func yelpSpiderRun(args, op, sval string) {
 
 	// Initialize variables
 	spider := &Spider{filename: op}
@@ -685,7 +687,6 @@ func safeReviewAdd(review ReviewFomate) {
 }
 
 func applyHashKey(review *ReviewFomate) {
-	fmt.Println("Here in apply hash key")
 	// First prepare string to make Hash
 	lstForHash := []string{}
 

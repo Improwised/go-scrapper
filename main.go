@@ -2,11 +2,14 @@ package main
 
 import (
 	"bytes"
+	"crypto/md5"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"net/http"
@@ -54,17 +57,20 @@ type Review struct {
 	Comment struct {
 		Text string `json:"text"`
 	}
-	Rating      int
-	Photos      string `json:"photosUrl"`
+	Rating int
+	Photos []struct {
+		Src string `json:"src"`
+	} `json:"photos"`
 	Author_id   string `json:"userId"`
 	Review_id   string `json:"id"`
 	Source_date string `json:"localizedDate"`
 	User        struct {
 		Author_name string `json:"markupDisplayName"`
 	} `json:"user"`
-	Scraped_at, Posted_at int64
-	OwnerReply            []struct {
-		Author_name string `json:"displayName"`
+	OwnerReply []struct {
+		Author_name struct {
+			Name string `json:"displayName"`
+		} `json:"owner"`
 		Text        string `json:"comment"`
 		Source_date string `json:"localizedDate"`
 	} `json:"businessOwnerReplies"`
@@ -72,37 +78,47 @@ type Review struct {
 		Comment struct {
 			Text string `json:"text"`
 		}
+		User struct {
+			Author_name string `json:"markupDisplayName"`
+		} `json:"user"`
+		Photos []struct {
+			Src string `json:"src"`
+		} `json:"photos"`
+		Author_id   string `json:"userId"`
+		Review_id   string `json:"id"`
 		Rating      int    `json:"rating"`
 		Source_date string `json:"localizedDate"`
+		OwnerReply  []struct {
+			Author_name struct {
+				Name string `json:"displayName"`
+			} `json:"owner"`
+			Text        string `json:"comment"`
+			Source_date string `json:"localizedDate"`
+		} `json:"businessOwnerReplies"`
 	} `json:"previousReviews"`
 }
 
 type OwnerReply struct {
-	Author_name, Text string
-	Posted_at         int64
-}
-
-// structure for previous review
-type PreviousReview struct {
-	Text      string
-	Rating    int
-	Posted_at int64
+	Author_name string `json:"author_name,omitempty"`
+	Text        string `json:"text,omitempty"`
+	Posted_at   string `json:"posted_at,omitempty"`
 }
 
 // Review stores information about a review
 type ReviewFomate struct {
-	Author_name     string     `json:"author_name"`
-	Text            string     `json:"text"`
-	Source_date     string     `json:"source_date"`
-	Review_id       string     `json:"review_id"`
-	Author_id       string     `json:"author_id"`
-	Photos          string     `json:"photos"`
-	Not_recommended bool       `json:"not_recommended"`
-	Rating          int        `json:"rating"`
-	Scraped_at      int64      `json:"scraped_at"`
-	Posted_at       int64      `json:"posted_at"`
-	OwnerReply      OwnerReply `json:"responses"`
-	PreviousReview  PreviousReview
+	Parent_id       string       `json:"parent_id,omitempty"`
+	Author_name     string       `json:"author_name,omitempty"`
+	Text            string       `json:"text,omitempty"`
+	Source_date     string       `json:"source_date,omitempty"`
+	Review_id       string       `json:"review_id,omitempty"`
+	Author_id       string       `json:"author_id,omitempty"`
+	Photos          []string     `json:"photos,omitempty"`
+	Not_recommended bool         `json:"not_recommended,omitempty"`
+	Rating          int          `json:"rating,omitempty"`
+	Scraped_at      int64        `json:"scraped_at,omitempty"`
+	Posted_at       int64        `json:"posted_at,omitempty"`
+	OwnerReply      []OwnerReply `json:"responses,omitempty"`
+	ReviewHash      string       `json:"review_hash"`
 }
 
 type HistogramFormat struct {
@@ -384,17 +400,64 @@ func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 		for _, obj := range data.Reviews {
 			posted_at, err := time.Parse("1/2/2006", obj.Source_date)
 			checkError(err)
+			var photo []string
+			for _, photoObj := range obj.Photos {
+				photo = append(photo, photoObj.Src)
+			}
 
 			review := ReviewFomate{
 				Review_id:   obj.Review_id,
 				Author_id:   obj.Author_id,
 				Author_name: obj.User.Author_name,
-				Text:        obj.Comment.Text,
+				Text:        html.UnescapeString(obj.Comment.Text),
 				Rating:      obj.Rating,
 				Source_date: obj.Source_date,
-				Photos:      obj.Photos,
+				Photos:      photo,
 				Posted_at:   int64(posted_at.Unix()),
 				Scraped_at:  int64(time.Now().Unix()),
+			}
+
+			for _, obj := range obj.OwnerReply {
+				response := OwnerReply{
+					Author_name: obj.Author_name.Name,
+					Text:        obj.Text,
+					Posted_at:   obj.Source_date,
+				}
+				review.OwnerReply = append(review.OwnerReply, response)
+			}
+
+			for _, preObj := range obj.PreviousReview {
+				posted_at, err := time.Parse("1/2/2006", preObj.Source_date)
+				checkError(err)
+
+				var photo []string
+				for _, photoObj := range obj.Photos {
+					photo = append(photo, photoObj.Src)
+				}
+
+				previous := ReviewFomate{
+					Parent_id:   obj.Review_id,
+					Review_id:   preObj.Review_id,
+					Author_id:   preObj.Author_id,
+					Author_name: preObj.User.Author_name,
+					Text:        preObj.Comment.Text,
+					Rating:      preObj.Rating,
+					Source_date: preObj.Source_date,
+					Photos:      photo,
+					Posted_at:   int64(posted_at.Unix()),
+					Scraped_at:  int64(time.Now().Unix()),
+				}
+
+				for _, obj := range preObj.OwnerReply {
+					response := OwnerReply{
+						Author_name: obj.Author_name.Name,
+						Text:        obj.Text,
+						Posted_at:   obj.Source_date,
+					}
+					previous.OwnerReply = append(previous.OwnerReply, response)
+				}
+
+				safeReviewAdd(previous)
 			}
 
 			safeReviewAdd(review)
@@ -459,7 +522,13 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup) *co
 		fmt.Println("Count", (rev_counter + non_counter))
 	})
 	linkCall.OnHTML(`div.not-recommended-reviews > ul.reviews > li`, func(e *colly.HTMLElement) {
-		author_id := e.ChildAttr("div.review-sidebar .user-display-name", "data-hovercard-id")
+		var author_id string
+		author_id_string := e.ChildAttr("div.review-sidebar .user-display-name", "href")
+		if author_id_string != "" {
+			autherRe := regexp.MustCompile(`'userid=(.*)`)
+			author_id = autherRe.FindStringSubmatch(author_id_string)[0]
+		}
+
 		author_name := e.ChildText("div.review-sidebar .user-display-name")
 		text := e.ChildText("div.review-wrapper div.review-content p")
 
@@ -472,7 +541,11 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup) *co
 		rat := re.FindStringSubmatch(e.ChildAttr(".biz-rating .i-stars", "class"))[1]
 		rating, _ := strconv.Atoi(rat)
 
-		photos := e.ChildAttr("ul.photo-box-grid div.photo-box img.photo-box-img", "data-async-src")
+		var photos []string
+		photo := e.ChildAttr("ul.photo-box-grid div.photo-box img.photo-box-img", "data-async-src")
+		if photo != "" {
+			photos = append(photos, photo)
+		}
 
 		posted_at, err := time.Parse("1/2/2006", source_date)
 		checkError(err)
@@ -496,23 +569,20 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup) *co
 
 		if comments != "" {
 			source_date := e.ChildText("div.biz-owner-reply span.bullet-after")
-			posted_at, err := time.Parse("1/2/2006", source_date)
-			checkError(err)
-
 			response := OwnerReply{
 				Author_name: strings.Replace(e.ChildText("div.biz-owner-reply-header strong"), "Comment from ", "", -1),
 				Text:        e.ChildText("span.js-content-toggleable.hidden"),
-				Posted_at:   int64(posted_at.Unix()),
+				Posted_at:   source_date,
 			}
 
-			review.OwnerReply = response
+			review.OwnerReply = append(review.OwnerReply, response)
 		}
 
 		// if review has previous review
-		var previous string
-		previous = e.ChildText("div.review-wrapper div.previous-review span.js-expandable-comment span.js-content-toggleable")
+		var previousReviewText string
+		previousReviewText = e.ChildText("div.review-wrapper div.previous-review span.js-expandable-comment span.js-content-toggleable")
 
-		if previous != "" {
+		if previousReviewText != "" {
 			date := strings.Fields(e.ChildText("div.review-wrapper div.previous-review .rating-qualifier"))
 			source_date := date[0]
 			posted_at, err := time.Parse("1/2/2006", source_date)
@@ -521,13 +591,25 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup) *co
 			rat := re.FindStringSubmatch(e.ChildAttr(".previous-review .biz-rating .i-stars", "class"))[1]
 			rating, _ := strconv.Atoi(rat)
 
-			previous_review := PreviousReview{
-				Text:      previous,
-				Rating:    rating,
-				Posted_at: int64(posted_at.Unix()),
+			var photos []string
+			photo := e.ChildText(".previous-review ul.photo-box-grid div.photo-box img.photo-box-img")
+			if photo != "" {
+				photos = append(photos, photo)
 			}
 
-			review.PreviousReview = previous_review
+			previous := ReviewFomate{
+				Parent_id:       review_id,
+				Author_id:       author_id,
+				Author_name:     author_name,
+				Text:            previousReviewText,
+				Rating:          rating,
+				Source_date:     source_date,
+				Not_recommended: true,
+				Photos:          photos,
+				Posted_at:       int64(posted_at.Unix()),
+				Scraped_at:      int64(time.Now().Unix()),
+			}
+			safeReviewAdd(previous)
 		}
 
 		safeReviewAdd(review)
@@ -597,6 +679,48 @@ func dumpMetaData(spider *Spider) {
 
 func safeReviewAdd(review ReviewFomate) {
 	mu.Lock()
+	applyHashKey(&review)
 	reviews = append(reviews, review)
 	mu.Unlock()
+}
+
+func applyHashKey(review *ReviewFomate) {
+	fmt.Println("Here in apply hash key")
+	// First prepare string to make Hash
+	lstForHash := []string{}
+
+	x := review
+	if !hasText(x) && !hasAuthor(x) && !hasResponses(x) && !hasRevId(x) {
+		// no text, no author, no responses but id exists
+		lstForHash = append(lstForHash, x.Review_id)
+	} else if hasResponses(x) {
+		// responses exists and it's first response has text
+		lstForHash = append(lstForHash, x.Text)
+		lstForHash = append(lstForHash, x.Author_name)
+		lstForHash = append(lstForHash, x.OwnerReply[0].Text)
+	} else {
+		// use text and author for generating hash
+		lstForHash = append(lstForHash, review.Text)
+		lstForHash = append(lstForHash, review.Author_name)
+	}
+	rawStr, _ := json.Marshal(lstForHash)
+	h := md5.New()
+	io.WriteString(h, string(rawStr))
+	review.ReviewHash = hex.EncodeToString(h.Sum(nil))
+}
+
+func hasText(review *ReviewFomate) bool {
+	return review.Text != ""
+}
+
+func hasAuthor(review *ReviewFomate) bool {
+	return review.Author_name != ""
+}
+
+func hasResponses(r *ReviewFomate) bool {
+	return len(r.OwnerReply) > 0 && r.OwnerReply[0].Text != ""
+}
+
+func hasRevId(review *ReviewFomate) bool {
+	return review.Review_id != ""
 }

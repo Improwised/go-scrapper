@@ -286,14 +286,14 @@ func yelpSpiderRun(args, op, sval string) {
 	// Profile URL Call
 	var wg sync.WaitGroup
 	wg.Add(1) // add PROFILE call
-	start_time = time.Now().UTC().String()
+	start_time = time.Now().UTC().Format("2006-01-02 15:04:05")
 	callProfileURL(spider, &wg)
 	fmt.Println("Waiting...")
 	wg.Wait() // Wait for completing all calls
-	finish_time = time.Now().UTC().String()
+	finish_time = time.Now().UTC().Format("2006-01-02 15:04:05")
 	fmt.Println("Profile Call done ! -- Count", len(reviews))
 	item_scraped_count = len(reviews)
-	if scrapStatus == "" {
+	if (scrapStatus == "" && len(reviews) > 0){
 		scrapStatus = "SUCCESS_SCRAPED"
 	}
 	dumpReviews(spider.filename)
@@ -307,6 +307,11 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 		fmt.Println("Status ", r.StatusCode)
 		if r.StatusCode == 404 {
 			scrapStatus = "PAGE_NOT_FOUND"
+		}
+		if (len(r.Body) == 0 && r.StatusCode == 0) {
+			if strings.Contains(e.Error(), "Client.Timeoutome") {
+				scrapStatus = "TIMEOUT"
+			}
 		}
 		log.Println("error:", e, r.Request.URL, string(r.Body))
 		wg.Done() // done PROFILE call [failed]
@@ -433,7 +438,7 @@ func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 				checkError(err)
 
 				var photo []string
-				for _, photoObj := range obj.Photos {
+				for _, photoObj := range preObj.Photos {
 					photo = append(photo, photoObj.Src)
 				}
 
@@ -682,6 +687,7 @@ func dumpMetaData(spider *Spider) {
 func safeReviewAdd(review ReviewFomate) {
 	mu.Lock()
 	applyHashKey(&review)
+	encodeFielsToB64(&review)
 	reviews = append(reviews, review)
 	mu.Unlock()
 }
@@ -724,4 +730,23 @@ func hasResponses(r *ReviewFomate) bool {
 
 func hasRevId(review *ReviewFomate) bool {
 	return review.Review_id != ""
+}
+
+func encodeFielsToB64(review *ReviewFomate) {
+	// if os.getenv() {
+	// 	return
+	// }
+	if hasText(review) {
+		review.Text = base64.StdEncoding.EncodeToString([]byte(review.Text))
+	}
+	if hasAuthor(review) {
+		review.Author_name = base64.StdEncoding.EncodeToString([]byte(review.Author_name))
+	}
+	if hasResponses(review) {
+		for key, obj := range review.OwnerReply {
+			review.OwnerReply[key].Text = base64.StdEncoding.EncodeToString([]byte(obj.Text))
+			review.OwnerReply[key].Author_name = base64.StdEncoding.EncodeToString([]byte(obj.Author_name))
+		}
+	}
+
 }

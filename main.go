@@ -295,6 +295,8 @@ func yelpSpiderRun(args, op, sval string) {
 	item_scraped_count = len(reviews)
 	if (scrapStatus == "" && len(reviews) > 0){
 		scrapStatus = "SUCCESS_SCRAPED"
+	} else {
+		scrapStatus = "SCRAPE_FAILED"
 	}
 	dumpReviews(spider.filename)
 	dumpMetaData(spider)
@@ -307,6 +309,9 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 		fmt.Println("Status ", r.StatusCode)
 		if r.StatusCode == 404 {
 			scrapStatus = "PAGE_NOT_FOUND"
+		}
+		if r.StatusCode == 503 {
+			scrapStatus = "SCRAPE_FAILED"
 		}
 		if (len(r.Body) == 0 && r.StatusCode == 0) {
 			if strings.Contains(e.Error(), "Client.Timeoutome") {
@@ -427,7 +432,7 @@ func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 			for _, obj := range obj.OwnerReply {
 				response := OwnerReply{
 					Author_name: obj.Author_name.Name,
-					Text:        obj.Text,
+					Text:        html.UnescapeString(obj.Text),
 					Posted_at:   obj.Source_date,
 				}
 				review.OwnerReply = append(review.OwnerReply, response)
@@ -447,7 +452,7 @@ func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 					Review_id:   preObj.Review_id,
 					Author_id:   preObj.Author_id,
 					Author_name: preObj.User.Author_name,
-					Text:        preObj.Comment.Text,
+					Text:        html.UnescapeString(preObj.Comment.Text),
 					Rating:      preObj.Rating,
 					Source_date: preObj.Source_date,
 					Photos:      photo,
@@ -458,7 +463,7 @@ func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 				for _, obj := range preObj.OwnerReply {
 					response := OwnerReply{
 						Author_name: obj.Author_name.Name,
-						Text:        obj.Text,
+						Text:        html.UnescapeString(obj.Text),
 						Posted_at:   obj.Source_date,
 					}
 					previous.OwnerReply = append(previous.OwnerReply, response)
@@ -561,7 +566,7 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup) *co
 			Review_id:       review_id,
 			Author_id:       author_id,
 			Author_name:     author_name,
-			Text:            text,
+			Text:            html.UnescapeString(text),
 			Rating:          rating,
 			Source_date:     source_date,
 			Not_recommended: true,
@@ -578,7 +583,7 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup) *co
 			source_date := e.ChildText("div.biz-owner-reply span.bullet-after")
 			response := OwnerReply{
 				Author_name: strings.Replace(e.ChildText("div.biz-owner-reply-header strong"), "Comment from ", "", -1),
-				Text:        e.ChildText("span.js-content-toggleable.hidden"),
+				Text:        html.UnescapeString(e.ChildText("span.js-content-toggleable.hidden")),
 				Posted_at:   source_date,
 			}
 
@@ -608,7 +613,7 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup) *co
 				Parent_id:       review_id,
 				Author_id:       author_id,
 				Author_name:     author_name,
-				Text:            previousReviewText,
+				Text:            html.UnescapeString(previousReviewText),
 				Rating:          rating,
 				Source_date:     source_date,
 				Not_recommended: true,
@@ -697,7 +702,7 @@ func applyHashKey(review *ReviewFomate) {
 	lstForHash := []string{}
 
 	x := review
-	if !hasText(x) && !hasAuthor(x) && !hasResponses(x) && !hasRevId(x) {
+	if !hasText(x) && !hasAuthor(x) && !hasResponses(x) && hasRevId(x) {
 		// no text, no author, no responses but id exists
 		lstForHash = append(lstForHash, x.Review_id)
 	} else if hasResponses(x) {

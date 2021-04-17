@@ -693,7 +693,24 @@ func safeReviewAdd(review ReviewFomate) {
 	mu.Lock()
 	applyHashKey(&review)
 	encodeFielsToB64(&review)
-	reviews = append(reviews, review)
+	dt, _ := time.Parse("1/2/2006", review.Source_date)
+	i := 0
+	for ; i < len(reviews); i++ {
+		rdt, _ := time.Parse("1/2/2006", reviews[i].Source_date)
+		
+		if rdt.Before(dt) {
+			break;
+		}
+	}
+	if (len(reviews) > 0  && i < len(reviews)) {
+		last := len(reviews) - 1
+		reviews = append(reviews, reviews[last])
+		copy(reviews[i+1:], reviews[i:last])	 
+		reviews[i] = review
+	} 
+	if len(reviews) == i {
+		reviews = append(reviews, review)
+	}
 	mu.Unlock()
 }
 
@@ -738,9 +755,6 @@ func hasRevId(review *ReviewFomate) bool {
 }
 
 func encodeFielsToB64(review *ReviewFomate) {
-	// if os.getenv() {
-	// 	return
-	// }
 	if hasText(review) {
 		review.Text = base64.StdEncoding.EncodeToString([]byte(review.Text))
 	}

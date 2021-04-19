@@ -144,8 +144,8 @@ type Meta struct {
 	Finish_time        string    `json:"finish_time"`
 	Scraping_status    string    `json:"scraping_status"`
 	Item_scraped_count int       `json:"item_scraped_count"`
-	Request_count      int       `json:"request_count"`
-	Response_bytes     int       `json:"response_bytes"`
+	Request_count      int       `json:"downloader/request_count"`
+	Response_bytes     int       `json:"downloader/response_bytes"`
 }
 
 func main() {
@@ -293,11 +293,12 @@ func yelpSpiderRun(args, op, sval string) {
 	finish_time = time.Now().UTC().Format("2006-01-02 15:04:05")
 	fmt.Println("Profile Call done ! -- Count", len(reviews))
 	item_scraped_count = len(reviews)
-	if (scrapStatus == "" && len(reviews) > 0){
+	if (len(reviews) > 0) {
 		scrapStatus = "SUCCESS_SCRAPED"
-	} else {
-		scrapStatus = "SCRAPE_FAILED"
-	}
+		if (scrapStatus == "") {
+			scrapStatus = "SCRAPE_FAILED"
+		}
+	}  
 	dumpReviews(spider.filename)
 	dumpMetaData(spider)
 	fmt.Println("Scrapping - ", scrapStatus)

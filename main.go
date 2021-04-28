@@ -298,6 +298,10 @@ func yelpSpiderRun(args, op, sval string) {
 		if (scrapStatus == "") {
 			scrapStatus = "SCRAPE_FAILED"
 		}
+	}
+	// Set higher cout of review in histogram
+	if (histogram.Primary.Total_reviews < int32(len(reviews))) {
+		histogram.Primary.Total_reviews = int32(len(reviews))
 	}  
 	dumpReviews(spider.filename)
 	dumpMetaData(spider)

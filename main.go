@@ -500,11 +500,12 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
 						panic(err)
 					}
 					nonReviewCount = count
-				} else {
-					wg.Done() // done NON_RECOMMENDED_ONCE call [success - without reviews]
-					fmt.Println("No review")
-					scrapStatus = "NO_REVIEWS"
-					return
+					if count == 0 {
+						wg.Done() // done NON_RECOMMENDED_ONCE call [success - without reviews]
+						fmt.Println("No review")
+						scrapStatus = "NO_REVIEWS"
+						return
+					}
 				}
 			}
 		}

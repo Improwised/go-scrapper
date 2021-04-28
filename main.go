@@ -298,6 +298,10 @@ func yelpSpiderRun(args, op, sval string) {
 		if (scrapStatus == "") {
 			scrapStatus = "SCRAPE_FAILED"
 		}
+	}
+	// Set higher cout of review in histogram
+	if (histogram.Primary.Total_reviews < int32(len(reviews))) {
+		histogram.Primary.Total_reviews = int32(len(reviews))
 	}  
 	dumpReviews(spider.filename)
 	dumpMetaData(spider)
@@ -333,18 +337,20 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 		// Collecting Histogram
 		// ===================================
 		scriptData := e.ChildText("script[type=\"application/ld+json\"]")
-		scriptData = scriptData[strings.Index(scriptData, "{"):strings.Index(scriptData, "}{")]
-		scriptData = scriptData + "}"
-		data := HistogramFormat{}
-		err := json.Unmarshal([]byte(scriptData), &data)
-		checkError(err)
-		histogram.Primary = Primary{
-			Score:         data.AggregateRating.RatingValue,
-			Total_reviews: data.AggregateRating.ReviewCount,
+		if len(scriptData) >= 1 {
+			scriptData = scriptData[strings.Index(scriptData, "{"):strings.Index(scriptData, "}{")]
+			scriptData = scriptData + "}"
+			data := HistogramFormat{}
+			err := json.Unmarshal([]byte(scriptData), &data)
+			checkError(err)
+			histogram.Primary = Primary{
+				Score:         data.AggregateRating.RatingValue,
+				Total_reviews: data.AggregateRating.ReviewCount,
+			}
+
+			fmt.Println("Histogram:", histogram)
 		}
-
-		fmt.Println("Histogram:", histogram)
-
+		
 		// ===================================
 		// Normal Review Scrap
 		// ===================================
@@ -369,13 +375,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 				wg.Add(1) // add REVIEW call
 				reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(i))
 			}
-
-		} else {
-			wg.Done() // done PROFILE call [success - without reviews]
-			fmt.Println("No review")
-			scrapStatus = "NO_REVIEWS"
-			return
-		}
+		} 
 
 		// ===================================
 		// Non Recommanded Review Scrap
@@ -504,6 +504,12 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
 						panic(err)
 					}
 					nonReviewCount = count
+					if count == 0 {
+						wg.Done() // done NON_RECOMMENDED_ONCE call [success - without reviews]
+						fmt.Println("No review")
+						scrapStatus = "NO_REVIEWS"
+						return
+					}
 				}
 			}
 		}

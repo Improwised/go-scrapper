@@ -310,21 +310,28 @@ func yelpSpiderRun(args, op, sval string) {
 
 func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 	profile := getColly(spider.Persona.Proxy)
+	retryCount := 0
 	profile.OnError(func(r *colly.Response, e error) {
 		fmt.Println("Status ", r.StatusCode)
-		if r.StatusCode == 404 {
-			scrapStatus = "PAGE_NOT_FOUND"
-		}
-		if r.StatusCode == 503 {
-			scrapStatus = "SCRAPE_FAILED"
-		}
-		if (len(r.Body) == 0 && r.StatusCode == 0) {
-			if strings.Contains(e.Error(), "Client.Timeoutome") {
-				scrapStatus = "TIMEOUT"
+		if retryCount < 3 {
+	     	retryCount += 1
+	     	fmt.Println("Retry Request - ", r.Request.URL)
+	      	r.Request.Retry()
+	    } else {
+	    	if r.StatusCode == 404 {
+				scrapStatus = "PAGE_NOT_FOUND"
 			}
+			if r.StatusCode == 503 {
+				scrapStatus = "SCRAPE_FAILED"
+			}
+			if (len(r.Body) == 0 && r.StatusCode == 0) {
+				if strings.Contains(e.Error(), "Client.Timeoutome") {
+					scrapStatus = "TIMEOUT"
+				}
+			}
+			log.Println("error:", e, r.Request.URL, string(r.Body))
+			wg.Done() // done PROFILE call [failed]
 		}
-		log.Println("error:", e, r.Request.URL, string(r.Body))
-		wg.Done() // done PROFILE call [failed]
 	})
 	profile.OnHTML(`html`, func(e *colly.HTMLElement) {
 		fmt.Println("Response - ", e.Request.URL.String())
@@ -336,19 +343,18 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 		// ===================================
 		// Collecting Histogram
 		// ===================================
-		scriptData := e.ChildText("script[type=\"application/ld+json\"]")
-		if len(scriptData) >= 1 {
-			scriptData = scriptData[strings.Index(scriptData, "{"):strings.Index(scriptData, "}{")]
-			scriptData = scriptData + "}"
-			data := HistogramFormat{}
-			err := json.Unmarshal([]byte(scriptData), &data)
-			checkError(err)
-			histogram.Primary = Primary{
-				Score:         data.AggregateRating.RatingValue,
-				Total_reviews: data.AggregateRating.ReviewCount,
+		
+		for _, v := range e.ChildTexts("script[type=\"application/ld+json\"]") {
+			if strings.Contains(v, "aggregateRating") {				
+				data := HistogramFormat{}
+				err := json.Unmarshal([]byte(v), &data)
+				checkError(err)
+				histogram.Primary = Primary{
+					Score:         data.AggregateRating.RatingValue,
+					Total_reviews: data.AggregateRating.ReviewCount,
+				}
+				fmt.Println("Histogram:", histogram)
 			}
-
-			fmt.Println("Histogram:", histogram)
 		}
 		
 		// ===================================
@@ -400,11 +406,18 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 
 func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 	linkCall := getColly(spider.Persona.Proxy)
+	retryCount := 0
 	linkCall.OnError(func(r *colly.Response, e error) {
-		log.Println("error:", e, r.Request.URL, string(r.Body))
-		ilink := r.Request.URL.String()
-		fmt.Println("URL Error:", ilink)
-		wg.Done() // done REVIEW call [failed]
+		if retryCount < 3 {
+			retryCount += 1
+	     	fmt.Println("Retry Request - ", r.Request.URL)
+	      	r.Request.Retry()
+		} else {
+			log.Println("error:", e, r.Request.URL, string(r.Body))
+			ilink := r.Request.URL.String()
+			fmt.Println("URL Error:", ilink)
+			wg.Done() // done REVIEW call [failed]
+		}
 	})
 	linkCall.OnResponse(func(r *colly.Response) {
 		data := &Reviews{}
@@ -485,9 +498,16 @@ func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 
 func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string) {
 	linkCall := getColly(spider.Persona.Proxy)
+	retryCount := 0
 	linkCall.OnError(func(r *colly.Response, e error) {
-		log.Println("error:", e, r.Request.URL, string(r.Body))
-		wg.Done() // done NON_RECOMMENDED_ONCE call [failed]
+		if retryCount < 3 {
+			retryCount += 1
+	     	fmt.Println("Retry Request - ", r.Request.URL)
+	      	r.Request.Retry()
+		} else {
+			log.Println("error:", e, r.Request.URL, string(r.Body))
+			wg.Done() // done NON_RECOMMENDED_ONCE call [failed]
+		}
 	})
 	linkCall.OnHTML(`html`, func(e *colly.HTMLElement) {
 		fmt.Println("Response - ", e.Request.URL.String())
@@ -530,9 +550,16 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
 
 func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 	linkCall := getColly(spider.Persona.Proxy)
+	retryCount := 0
 	linkCall.OnError(func(r *colly.Response, e error) {
-		log.Println("error:", e, r.Request.URL, string(r.Body))
-		wg.Done() // done NON_RECOMMENDED_REV call [failed]
+		if retryCount < 3 {
+			retryCount += 1
+	     	fmt.Println("Retry Request - ", r.Request.URL)
+	      	r.Request.Retry()
+		} else {
+			log.Println("error:", e, r.Request.URL, string(r.Body))
+			wg.Done() // done NON_RECOMMENDED_REV call [failed]
+		}
 	})
 	linkCall.OnHTML(`html`, func(e *colly.HTMLElement) {
 		nonReviewCount := len(e.ChildTexts(`div.not-recommended-reviews > ul.reviews > li`))

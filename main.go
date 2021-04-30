@@ -807,6 +807,7 @@ func encodeFielsToB64(review *ReviewFomate) {
 }
 
 func retryRequest(url string) bool {
+    // used url hase for retry check
     h := md5.New()
     h.Write([]byte(url))
     urlHash := hex.EncodeToString(h.Sum(nil))

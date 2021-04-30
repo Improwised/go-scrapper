@@ -272,6 +272,10 @@ var (
 	mu                   sync.Mutex
 )
 
+var (
+    retryCount = make(map[string]int)
+)
+
 func yelpSpiderRun(args, op, sval string) {
 
 	// Initialize variables
@@ -310,28 +314,26 @@ func yelpSpiderRun(args, op, sval string) {
 
 func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 	profile := getColly(spider.Persona.Proxy)
-	retryCount := 0
 	profile.OnError(func(r *colly.Response, e error) {
 		fmt.Println("Status ", r.StatusCode)
-		if retryCount < 3 {
-	     	retryCount += 1
-	     	fmt.Println("Retry Request - ", r.Request.URL)
-	      	r.Request.Retry()
-	    } else {
-	    	if r.StatusCode == 404 {
-				scrapStatus = "PAGE_NOT_FOUND"
-			}
-			if r.StatusCode == 503 {
-				scrapStatus = "SCRAPE_FAILED"
-			}
-			if (len(r.Body) == 0 && r.StatusCode == 0) {
-				if strings.Contains(e.Error(), "Client.Timeoutome") {
-					scrapStatus = "TIMEOUT"
-				}
-			}
-			log.Println("error:", e, r.Request.URL, string(r.Body))
-			wg.Done() // done PROFILE call [failed]
-		}
+		if retryRequest(r.Request.URL.String()) {
+            fmt.Println("Retry Request- ", r.Request.URL)
+            r.Request.Retry()
+        } else {
+            if r.StatusCode == 404 {
+                scrapStatus = "NO_SEARCH_RESULTS"
+            }
+            if r.StatusCode == 503 {
+                scrapStatus = "SCRAPE_FAILED"
+            }
+            if (len(r.Body) == 0 && r.StatusCode == 0) {
+                if strings.Contains(e.Error(), "Client.Timeoutome") {
+                    scrapStatus = "TIMEOUT"
+                }
+            }
+            log.Println("error:", e, r.Request.URL, string(r.Body))
+            wg.Done() // done PROFILE call [failed]
+        }
 	})
 	profile.OnHTML(`html`, func(e *colly.HTMLElement) {
 		fmt.Println("Response - ", e.Request.URL.String())
@@ -406,18 +408,16 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 
 func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 	linkCall := getColly(spider.Persona.Proxy)
-	retryCount := 0
 	linkCall.OnError(func(r *colly.Response, e error) {
-		if retryCount < 3 {
-			retryCount += 1
-	     	fmt.Println("Retry Request - ", r.Request.URL)
-	      	r.Request.Retry()
-		} else {
-			log.Println("error:", e, r.Request.URL, string(r.Body))
-			ilink := r.Request.URL.String()
-			fmt.Println("URL Error:", ilink)
-			wg.Done() // done REVIEW call [failed]
-		}
+		if retryRequest(r.Request.URL.String()) {
+            fmt.Println("Retry Request- ", r.Request.URL)
+            r.Request.Retry()
+        } else {
+            log.Println("error:", e, r.Request.URL, string(r.Body))
+            ilink := r.Request.URL.String()
+            fmt.Println("URL Error:", ilink)
+            wg.Done() // done REVIEW call [failed]
+        }
 	})
 	linkCall.OnResponse(func(r *colly.Response) {
 		data := &Reviews{}
@@ -498,16 +498,14 @@ func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 
 func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string) {
 	linkCall := getColly(spider.Persona.Proxy)
-	retryCount := 0
 	linkCall.OnError(func(r *colly.Response, e error) {
-		if retryCount < 3 {
-			retryCount += 1
-	     	fmt.Println("Retry Request - ", r.Request.URL)
-	      	r.Request.Retry()
-		} else {
-			log.Println("error:", e, r.Request.URL, string(r.Body))
-			wg.Done() // done NON_RECOMMENDED_ONCE call [failed]
-		}
+		if retryRequest(r.Request.URL.String()) {
+			fmt.Println("Retry Request- ", r.Request.URL)
+            r.Request.Retry()
+        } else {
+            log.Println("error:", e, r.Request.URL, string(r.Body))
+            wg.Done() // done NON_RECOMMENDED_ONCE call [failed]    
+        }
 	})
 	linkCall.OnHTML(`html`, func(e *colly.HTMLElement) {
 		fmt.Println("Response - ", e.Request.URL.String())
@@ -550,16 +548,14 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
 
 func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 	linkCall := getColly(spider.Persona.Proxy)
-	retryCount := 0
 	linkCall.OnError(func(r *colly.Response, e error) {
-		if retryCount < 3 {
-			retryCount += 1
-	     	fmt.Println("Retry Request - ", r.Request.URL)
-	      	r.Request.Retry()
-		} else {
-			log.Println("error:", e, r.Request.URL, string(r.Body))
-			wg.Done() // done NON_RECOMMENDED_REV call [failed]
-		}
+		if retryRequest(r.Request.URL.String()) {
+			fmt.Println("Retry Request- ", r.Request.URL)
+            r.Request.Retry()
+        } else {
+            log.Println("error:", e, r.Request.URL, string(r.Body))
+            wg.Done() // done NON_RECOMMENDED_REV call [failed] 
+        }
 	})
 	linkCall.OnHTML(`html`, func(e *colly.HTMLElement) {
 		nonReviewCount := len(e.ChildTexts(`div.not-recommended-reviews > ul.reviews > li`))
@@ -677,25 +673,26 @@ func checkError(err error) {
 }
 
 func dumpReviews(fname string) {
+	file, err := os.OpenFile(fname, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0755)
+    if err != nil {
+        panic(err)
+    }
+    defer file.Close()
 	for _, v := range reviews {
-		_, err := WriteDataToFileAsJSON(v, fname)
+		_, err := WriteDataToFileAsJSON(v, file)
 		if err != nil {
 			panic(err)
 		}
 	}
 }
 
-func WriteDataToFileAsJSON(data interface{}, filedir string) (int, error) {
+func WriteDataToFileAsJSON(data interface{}, file *os.File) (int, error) {
 	//write data as buffer to json encoder
 	buffer := new(bytes.Buffer)
 	encoder := json.NewEncoder(buffer)
 	// encoder.SetIndent("", "\t")
 
 	err := encoder.Encode(data)
-	if err != nil {
-		return 0, err
-	}
-	file, err := os.OpenFile(filedir, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0755)
 	if err != nil {
 		return 0, err
 	}
@@ -720,7 +717,12 @@ func dumpMetaData(spider *Spider) {
 	mainFileExt := filepath.Ext(spider.filename)
 	fnameIndex := len(spider.filename) - len(mainFileExt)
 	metaFile := spider.filename[0:fnameIndex] + "-meta.json"
-	WriteDataToFileAsJSON(data, metaFile)
+	file, err := os.OpenFile(metaFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0755)
+    if err != nil {
+        panic(err)
+    }
+    defer file.Close()
+    WriteDataToFileAsJSON(data, file)
 }
 
 func safeReviewAdd(review ReviewFomate) {
@@ -802,4 +804,21 @@ func encodeFielsToB64(review *ReviewFomate) {
 		}
 	}
 
+}
+
+func retryRequest(url string) bool {
+    h := md5.New()
+    h.Write([]byte(url))
+    urlHash := hex.EncodeToString(h.Sum(nil))
+    if val, ok := retryCount[urlHash]; ok {
+        if val < 3 {
+            val += 1
+            retryCount[urlHash] = val
+            return true
+        }
+        return false
+    } else {
+        retryCount[urlHash] = 0
+        return true
+    }
 }

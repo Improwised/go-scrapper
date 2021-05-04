@@ -209,7 +209,7 @@ func getFromProxy(proxy, key string) string {
 
 func getColly(proxy string) *colly.Collector {
     c := colly.NewCollector(
-        colly.AllowedDomains("yelp.com", "www.yelp.com"),
+        colly.AllowedDomains("yelp.com", "www.yelp.com", "www.yelp.ca", "www.yelp.com.au"),
         colly.Async(true),
     )
     proxyUrl := getFromProxy(proxy, "url")
@@ -331,7 +331,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
                     scrapStatus = "TIMEOUT"
                 }
             }
-            log.Println("error:", e, r.Request.URL, string(r.Body))
+            log.Println("error:", e, r.Request.URL, string(r.Body), r.StatusCode, retryCount)
             wg.Done() // done PROFILE call [failed]
         }
     })
@@ -394,7 +394,13 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
         if err != nil {
             log.Fatal(err)
         }
-        nonRevURL := e.Request.URL.ResolveReference(nonUrl)
+        
+        // Prepare Domain for Non Recommanded URL
+        domainUrl, err := url.Parse("https://www.yelp.com/")
+        if err != nil {
+            log.Fatal(err)
+        }
+        nonRevURL := domainUrl.ResolveReference(nonUrl)
 
         wg.Add(1) // add NON_RECOMMENDED_ONCE call
 
@@ -403,7 +409,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 
         wg.Done() // done PROFILE call [success]
     })
-    profile.Visit(spider.ProfileKey)
+    profile.Visit(strings.TrimRight(spider.ProfileKey, "\n"))
 }
 
 func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {

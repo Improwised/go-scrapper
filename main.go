@@ -269,6 +269,7 @@ var (
     scrapStatus          string
     requestCount         int
     responseBytes        int
+    Profile_key          string
     mu                   sync.Mutex
 )
 
@@ -285,6 +286,23 @@ func yelpSpiderRun(args, op, sval string) {
     if spider.ProfileKey == "" {
         fmt.Println("We are not supporting business without profile key as of now.")
         os.Exit(1)
+    }
+    Profile_key = spider.ProfileKey
+
+    //if profile_key have different host
+    if strings.Contains(spider.ProfileKey, "yelp.") {
+        Profile_key = strings.TrimRight(Profile_key, "\n")
+        u, err := url.Parse(Profile_key)
+        if err != nil {
+            panic(err)
+        } 
+        if (u.Scheme != "http" && u.Scheme != "https") {
+            u.Scheme = "https"
+        }
+        if (u.Host != "yelp.com" && u.Host != "www.yelp.com") {
+            u.Host = "www.yelp.com"
+        }
+        Profile_key = u.String()  
     }
 
     // Profile URL Call
@@ -331,7 +349,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
                     scrapStatus = "TIMEOUT"
                 }
             }
-            log.Println("error:", e, r.Request.URL, string(r.Body))
+            log.Println("error:", e, r.Request.URL, string(r.Body), r.StatusCode, retryCount)
             wg.Done() // done PROFILE call [failed]
         }
     })
@@ -394,6 +412,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
         if err != nil {
             log.Fatal(err)
         }
+        
         nonRevURL := e.Request.URL.ResolveReference(nonUrl)
 
         wg.Add(1) // add NON_RECOMMENDED_ONCE call
@@ -403,7 +422,8 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 
         wg.Done() // done PROFILE call [success]
     })
-    profile.Visit(spider.ProfileKey)
+
+    profile.Visit(Profile_key)
 }
 
 func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {

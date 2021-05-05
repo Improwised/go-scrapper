@@ -295,11 +295,11 @@ func yelpSpiderRun(args, op, sval string) {
         u, err := url.Parse(Profile_key)
         if err != nil {
             panic(err)
-        }
-        if (u.Scheme != "http" || u.Scheme != "https") {
+        } 
+        if (u.Scheme != "http" && u.Scheme != "https") {
             u.Scheme = "https"
         }
-        if (u.Host != "yelp.com" || u.Host != "www.yelp.com") {
+        if (u.Host != "yelp.com" && u.Host != "www.yelp.com") {
             u.Host = "www.yelp.com"
         }
         Profile_key = u.String()  

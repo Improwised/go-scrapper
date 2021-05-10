@@ -640,25 +640,27 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup) *co
             review.OwnerReply = append(review.OwnerReply, response)
         }
 
-        // if review has previous review
-        var previousReviewText string
-        previousReviewText = e.ChildText("div.review-wrapper div.previous-review span.js-expandable-comment span.js-content-toggleable")
-
-        if previousReviewText != "" {
-            date := strings.Fields(e.ChildText("div.review-wrapper div.previous-review .rating-qualifier"))
+        e.ForEach("div.previous-review", func(_ int, elem *colly.HTMLElement) {
+            date := strings.Fields(elem.ChildText(".rating-qualifier"))
             source_date := date[0]
             posted_at, err := time.Parse("1/2/2006", source_date)
             checkError(err)
 
-            rat := re.FindStringSubmatch(e.ChildAttr(".previous-review .biz-rating .i-stars", "class"))[1]
+            rat := re.FindStringSubmatch(elem.ChildAttr(".biz-rating .i-stars", "class"))[1]
             rating, _ := strconv.Atoi(rat)
 
             var photos []string
-            photo := e.ChildText(".previous-review ul.photo-box-grid div.photo-box img.photo-box-img")
+            photo := elem.ChildText("ul.photo-box-grid div.photo-box img.photo-box-img")
             if photo != "" {
                 photos = append(photos, photo)
             }
 
+            previousReviewText := elem.ChildText("span.js-expandable-comment span.js-content-toggleable")
+            if (previousReviewText == "" && len(elem.Text) > 1) {
+                lastText := strings.TrimRight(elem.Text, "\t \n")
+                strSlice := strings.SplitAfter(lastText, "\n")
+                previousReviewText =  strings.TrimSpace(strSlice[len(strSlice) - 1])
+            }
             previous := ReviewFomate{
                 Parent_id:       review_id,
                 Author_id:       author_id,
@@ -672,8 +674,7 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup) *co
                 Scraped_at:      int64(time.Now().Unix()),
             }
             safeReviewAdd(previous)
-        }
-
+        })
         safeReviewAdd(review)
         // reviews = append(reviews, review)
         non_counter += 1
@@ -831,15 +832,19 @@ func retryRequest(url string) bool {
     h := md5.New()
     h.Write([]byte(url))
     urlHash := hex.EncodeToString(h.Sum(nil))
+    mu.Lock()
     if val, ok := retryCount[urlHash]; ok {
-        if val < 3 {
+        if val < 5 {
             val += 1
             retryCount[urlHash] = val
+            mu.Unlock()
             return true
         }
+        mu.Unlock()
         return false
     } else {
         retryCount[urlHash] = 0
+        mu.Unlock()
         return true
     }
 }

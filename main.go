@@ -337,6 +337,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
         fmt.Println("Status ", r.StatusCode)
         if retryRequest(r.Request.URL.String()) {
             fmt.Println("Retry Request- ", r.Request.URL)
+            time.Sleep(1 * time.Second)
             r.Request.Retry()
         } else {
             if r.StatusCode == 404 {
@@ -408,6 +409,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
             if businessDescription == "" {
                 if retryRequest(e.Request.URL.String()) {
                     fmt.Println("Retry Request- ", e.Request.URL)
+                    time.Sleep(1 * time.Second)
                     e.Request.Retry()
                 } else {
                     scrapStatus = "NO_BUSINESS_PAGE"
@@ -445,6 +447,7 @@ func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
     linkCall.OnError(func(r *colly.Response, e error) {
         if retryRequest(r.Request.URL.String()) {
             fmt.Println("Retry Request- ", r.Request.URL)
+            time.Sleep(1 * time.Second)
             r.Request.Retry()
         } else {
             log.Println("error:", e, r.Request.URL, string(r.Body))
@@ -535,6 +538,7 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
     linkCall.OnError(func(r *colly.Response, e error) {
         if retryRequest(r.Request.URL.String()) {
             fmt.Println("Retry Request- ", r.Request.URL)
+            time.Sleep(1 * time.Second)
             r.Request.Retry()
         } else {
             if minimal_review_count == 0 {
@@ -579,6 +583,7 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
                     //if page have not data which is imported
                     if retryRequest(e.Request.URL.String()) {
                         fmt.Println("Retry Request- ", e.Request.URL)
+                        time.Sleep(1 * time.Second)
                         e.Request.Retry()
                     } else {
                         scrapStatus = "NO_BUSINESS_PAGE"
@@ -608,6 +613,7 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup) *co
     linkCall.OnError(func(r *colly.Response, e error) {
         if retryRequest(r.Request.URL.String()) {
             fmt.Println("Retry Request- ", r.Request.URL)
+            time.Sleep(1 * time.Second)
             r.Request.Retry()
         } else {
             log.Println("error:", e, r.Request.URL, string(r.Body))

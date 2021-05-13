@@ -317,8 +317,9 @@ func yelpSpiderRun(args, op, sval string) {
     item_scraped_count = len(reviews)
     if (len(reviews) > 0) {
         scrapStatus = "SUCCESS_SCRAPED"
+    } else {
         if (scrapStatus == "") {
-            scrapStatus = "SCRAPE_FAILED"
+            scrapStatus = "NO_REVIEWS"
         }
     }
     // Set higher cout of review in histogram
@@ -344,8 +345,8 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
             if r.StatusCode == 503 {
                 scrapStatus = "SCRAPE_FAILED"
             }
-            if (len(r.Body) == 0 && r.StatusCode == 0) {
-                if strings.Contains(e.Error(), "Client.Timeoutome") {
+            if r.StatusCode == 0 {
+                if strings.Contains(e.Error(), "Client.Timeout") {
                     scrapStatus = "TIMEOUT"
                 }
             }
@@ -536,6 +537,19 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
             fmt.Println("Retry Request- ", r.Request.URL)
             r.Request.Retry()
         } else {
+            if minimal_review_count == 0 {
+                if r.StatusCode == 404 {
+                    scrapStatus = "NO_SEARCH_RESULTS"
+                }
+                if r.StatusCode == 503 {
+                    scrapStatus = "SCRAPE_FAILED"
+                }
+                if r.StatusCode == 0 {
+                    if strings.Contains(e.Error(), "Client.Timeout") {
+                        scrapStatus = "TIMEOUT"
+                    }
+                } 
+            }            
             log.Println("error:", e, r.Request.URL, string(r.Body))
             wg.Done() // done NON_RECOMMENDED_ONCE call [failed]    
         }

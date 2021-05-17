@@ -403,20 +403,6 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
                 wg.Add(1) // add REVIEW call
                 reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(i))
             }
-        } else {
-            //if page have not data which is imported
-            businessDescription := e.ChildAttr("meta[name=\"description\"]", "content")
-            if businessDescription == "" {
-                if retryRequest(e.Request.URL.String()) {
-                    fmt.Println("Retry Request- ", e.Request.URL)
-                    time.Sleep(1 * time.Second)
-                    e.Request.Retry()
-                } else {
-                    scrapStatus = "NO_BUSINESS_PAGE"
-                    wg.Done()
-                    return
-                }
-            }
         }
 
         // ===================================
@@ -577,17 +563,6 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
                         wg.Done() // done NON_RECOMMENDED_ONCE call [success - without reviews]
                         fmt.Println("No review")
                         scrapStatus = "NO_REVIEWS"
-                        return
-                    }
-                } else {
-                    //if page have not data which is imported
-                    if retryRequest(e.Request.URL.String()) {
-                        fmt.Println("Retry Request- ", e.Request.URL)
-                        time.Sleep(1 * time.Second)
-                        e.Request.Retry()
-                    } else {
-                        scrapStatus = "NO_BUSINESS_PAGE"
-                        wg.Done()
                         return
                     }
                 }

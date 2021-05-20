@@ -337,7 +337,6 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
         fmt.Println("Status ", r.StatusCode)
         if retryRequest(r.Request.URL.String()) {
             fmt.Println("Retry Request- ", r.Request.URL)
-            time.Sleep(1 * time.Second)
             r.Request.Retry()
         } else {
             if r.StatusCode == 404 {
@@ -433,7 +432,6 @@ func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
     linkCall.OnError(func(r *colly.Response, e error) {
         if retryRequest(r.Request.URL.String()) {
             fmt.Println("Retry Request- ", r.Request.URL)
-            time.Sleep(1 * time.Second)
             r.Request.Retry()
         } else {
             log.Println("error:", e, r.Request.URL, string(r.Body))
@@ -524,7 +522,6 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
     linkCall.OnError(func(r *colly.Response, e error) {
         if retryRequest(r.Request.URL.String()) {
             fmt.Println("Retry Request- ", r.Request.URL)
-            time.Sleep(1 * time.Second)
             r.Request.Retry()
         } else {
             if minimal_review_count == 0 {
@@ -588,7 +585,6 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup) *co
     linkCall.OnError(func(r *colly.Response, e error) {
         if retryRequest(r.Request.URL.String()) {
             fmt.Println("Retry Request- ", r.Request.URL)
-            time.Sleep(1 * time.Second)
             r.Request.Retry()
         } else {
             log.Println("error:", e, r.Request.URL, string(r.Body))

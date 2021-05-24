@@ -227,6 +227,8 @@ func getColly(proxy string) *colly.Collector {
     // pass transport to collector
     c.WithTransport(transport)
 
+    c.SetRequestTimeout(60 * time.Second)
+
     c.OnRequest(func(r *colly.Request) {
         requestCount += 1
         fmt.Println("Visit - ", r.URL)
@@ -249,6 +251,7 @@ func getColly(proxy string) *colly.Collector {
         DomainGlob:  "*",
         Parallelism: 5,
         Delay:       2 * time.Second,
+        RandomDelay: 2 * time.Second,
     })
 
     return c
@@ -359,6 +362,17 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 
         // Collect Business ID
         businessId := strings.Split(e.ChildAttr("meta[name=\"yelp-biz-id\"]", "content"), "\n")[0]
+        if len(businessId) == 0 {
+            if retryRequest(e.Request.URL.String()) {
+                fmt.Println("Retry Request- ", e.Request.URL)
+                e.Request.Retry()
+            } else {
+                fmt.Println("Business Id missed")
+                scrapStatus = "NO_SEARCH_RESULTS"
+                wg.Done()
+                return
+            }
+        }
         fmt.Println("Business ID:", businessId)
 
         // ===================================

@@ -363,15 +363,10 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
         // Collect Business ID
         businessId := strings.Split(e.ChildAttr("meta[name=\"yelp-biz-id\"]", "content"), "\n")[0]
         if len(businessId) == 0 {
-            if retryRequest(e.Request.URL.String()) {
-                fmt.Println("Retry Request- ", e.Request.URL)
-                e.Request.Retry()
-            } else {
-                fmt.Println("Business Id missed")
-                scrapStatus = "NO_SEARCH_RESULTS"
-                wg.Done()
-                return
-            }
+            wg.Done() // done PROFILE call
+            fmt.Println("Format Changed")
+            scrapStatus = "PAGE_FORMAT_CHANGE"
+            return
         }
         fmt.Println("Business ID:", businessId)
 

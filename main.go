@@ -287,8 +287,9 @@ func yelpSpiderRun(args, op, sval string) {
     setPlace(args, spider)
 
     if spider.ProfileKey == "" {
-        fmt.Println("We are not supporting business without profile key as of now.")
-        os.Exit(1)
+        callSearchURL(spider)
+        // fmt.Println("We are not supporting business without profile key as of now.")
+        // os.Exit(1)
     }
     Profile_key = spider.ProfileKey
 
@@ -332,6 +333,25 @@ func yelpSpiderRun(args, op, sval string) {
     dumpReviews(spider.filename)
     dumpMetaData(spider)
     fmt.Println("Scrapping - ", scrapStatus)
+}
+
+func callSearchURL(spider *Spider) {
+    search := getColly(spider.Persona.Proxy)
+    search.OnError(func(r *colly.Response, e error) {
+        fmt.Println("Status ", r.StatusCode)
+    })
+    search.OnHTML(`html`, func(e *colly.HTMLElement) {
+        fmt.Println("Response - ", e.Request.URL.String())
+
+        
+        fmt.Println(e)
+        // wg.Done() // done PROFILE call [success]
+    })
+    address := spider.Address.Street + " " + spider.Address.State + " " + spider.Address.City + " " + spider.Address.Zip
+    addressOutput := url.QueryEscape(address)
+    nameOutput := url.QueryEscape(spider.BusinessName)
+    url :=  "https://www.yelp.com/search?find_desc=" + nameOutput + "&find_loc=" + addressOutput
+    search.Visit(url)
 }
 
 func callProfileURL(spider *Spider, wg *sync.WaitGroup) {

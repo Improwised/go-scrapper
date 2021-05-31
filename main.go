@@ -738,7 +738,7 @@ func WriteDataToFileAsJSON(data interface{}, file *os.File) (int, error) {
     //write data as buffer to json encoder
     buffer := new(bytes.Buffer)
     encoder := json.NewEncoder(buffer)
-    // encoder.SetIndent("", "\t")
+    encoder.SetEscapeHTML(false)
 
     err := encoder.Encode(data)
     if err != nil {
@@ -817,6 +817,11 @@ func applyHashKey(review *ReviewFomate) {
         lstForHash = append(lstForHash, review.Author_name)
     }
     rawStr, _ := json.Marshal(lstForHash)
+
+    rawStr = bytes.Replace(rawStr, []byte(`\u003c`), []byte("<"), -1)
+    rawStr = bytes.Replace(rawStr, []byte(`\u003e`), []byte(">"), -1)
+    rawStr = bytes.Replace(rawStr, []byte(`\u0026`), []byte("&"), -1)
+    
     h := md5.New()
     io.WriteString(h, string(rawStr))
     review.ReviewHash = hex.EncodeToString(h.Sum(nil))

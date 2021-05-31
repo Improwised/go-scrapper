@@ -137,6 +137,32 @@ type Histogram struct {
     Primary Primary `json:"primary"`
 }
 
+type SearchResultFormat struct {
+    LegacyProps struct {
+        SearchPageProps struct {
+            SearchMapProps struct {
+                HovercardData struct `json:"hovercardData"`
+            } `json:"searchMapProps"`
+        } `json:"searchPageProps"`
+    } `json:"legacyProps"`
+}
+
+// type SearchResultFormat struct {
+//     LegacyProps struct {
+//         SearchPageProps struct {
+//             SearchMapProps struct {
+//                 HovercardData struct {
+//                     IsAd bool `json:"isAd"`
+//                     BusinessUrl string `json:"businessUrl"`
+//                     Name string `json:"name"`
+//                     AddressLines []string `json:"addressLines"`
+//                     NumReviews int `json:"numReviews"`   
+//                 } `json:"hovercardData"`
+//             } `json:"searchMapProps"`
+//         } `json:"searchPageProps"`
+//     } `json:"legacyProps"`
+// }
+
 type Meta struct {
     Histogram          Histogram `json:"histogram"`
     Profile_key        string    `json:"profile_key"`
@@ -343,8 +369,16 @@ func callSearchURL(spider *Spider) {
     search.OnHTML(`html`, func(e *colly.HTMLElement) {
         fmt.Println("Response - ", e.Request.URL.String())
 
-        
-        fmt.Println(e)
+        for _, v := range e.ChildTexts("script[data-hypernova-key=\"yelpfrontend__5531__yelpfrontend__GondolaSearch__dynamic\"]") {
+            if strings.Contains(v, "searchPageProps") {             
+                re := regexp.MustCompile(`(<!--|-->)`)
+                s := re.ReplaceAllString(v, "")
+                data := SearchResultFormat{}
+                err := json.Unmarshal([]byte(s), &data)
+                checkError(err)
+                fmt.Println(data)
+            }
+        }
         // wg.Done() // done PROFILE call [success]
     })
     address := spider.Address.Street + " " + spider.Address.State + " " + spider.Address.City + " " + spider.Address.Zip

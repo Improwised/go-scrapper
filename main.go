@@ -250,8 +250,8 @@ func getColly(proxy string) *colly.Collector {
     c.Limit(&colly.LimitRule{
         DomainGlob:  "*",
         Parallelism: 5,
-        Delay:       2 * time.Second,
-        RandomDelay: 2 * time.Second,
+        Delay:       1 * time.Second,
+        RandomDelay: 1 * time.Second,
     })
 
     return c

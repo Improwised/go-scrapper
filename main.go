@@ -227,7 +227,7 @@ func getColly(proxy string) *colly.Collector {
     // pass transport to collector
     c.WithTransport(transport)
 
-    c.SetRequestTimeout(50 * time.Second)
+    c.SetRequestTimeout(60 * time.Second)
 
     c.OnRequest(func(r *colly.Request) {
         requestCount += 1

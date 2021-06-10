@@ -139,9 +139,28 @@ type Histogram struct {
 
 type Target struct {
     Name string `json:"name"`
+    Text string `json:"text"`
+}
+
+type CompareTarget struct {
+    Name string `json:"name"`
     Url string `json:"url"`
-    Text []interface {} `json:"text"`
+    Text string `json:"text"`
     Review_count float64 `json:"review_count"`
+}
+
+type MatchServicePayload struct {
+    Client_id string `json:"client_id"`
+    Target Target`json:"target"`
+    Compare_targets []CompareTarget `json:"compare_targets"`
+    Winner bool `json:"winner"`
+}
+
+type MatchServiceResponse struct {
+    Client_id string `json:"client_id"`
+    Target Target`json:"target"`
+    Compare_targets []CompareTarget `json:"compare_targets"`
+    Winner int `json:"winner"`
 }
 
 type Meta struct {
@@ -279,12 +298,13 @@ var (
     requestCount         int
     responseBytes        int
     Profile_key          string
+    payload              MatchServicePayload
     mu                   sync.Mutex
 )
 
 var (
     retryCount = make(map[string]int)
-    compare_targets = make([]Target, 0, 20)
+    compare_targets = make([]CompareTarget, 0, 20)
 )
 
 func yelpSpiderRun(args, op, sval string) {
@@ -292,100 +312,144 @@ func yelpSpiderRun(args, op, sval string) {
     // Initialize variables
     spider := &Spider{filename: op}
     setPlace(args, spider)
+    var wg sync.WaitGroup
+
 
     if spider.ProfileKey == "" {
-        callSearchURL(spider)
-        // fmt.Println("We are not supporting business without profile key as of now.")
-        // os.Exit(1)
+        wg.Add(1)
+        callSearchURL(spider, &wg)
+        wg.Wait()
     }
-    Profile_key = spider.ProfileKey
+    
+    if len(spider.ProfileKey) > 0 {
+        Profile_key = spider.ProfileKey
 
-    //if profile_key have different host
-    if strings.Contains(spider.ProfileKey, "yelp.") {
-        Profile_key = strings.TrimRight(Profile_key, "\n")
-        u, err := url.Parse(Profile_key)
-        if err != nil {
-            panic(err)
-        } 
-        if (u.Scheme != "http" && u.Scheme != "https") {
-            u.Scheme = "https"
+        //if profile_key have different host
+        if strings.Contains(spider.ProfileKey, "yelp.") {
+            Profile_key = strings.TrimRight(Profile_key, "\n")
+            u, err := url.Parse(Profile_key)
+            if err != nil {
+                panic(err)
+            } 
+            if (u.Scheme != "http" && u.Scheme != "https") {
+                u.Scheme = "https"
+            }
+            if (u.Host != "yelp.com" && u.Host != "www.yelp.com") {
+                u.Host = "www.yelp.com"
+            }
+            Profile_key = u.String()  
         }
-        if (u.Host != "yelp.com" && u.Host != "www.yelp.com") {
-            u.Host = "www.yelp.com"
-        }
-        Profile_key = u.String()  
-    }
 
-    // Profile URL Call
-    var wg sync.WaitGroup
-    wg.Add(1) // add PROFILE call
-    start_time = time.Now().UTC().Format("2006-01-02 15:04:05")
-    callProfileURL(spider, &wg)
-    fmt.Println("Waiting...")
-    wg.Wait() // Wait for completing all calls
-    finish_time = time.Now().UTC().Format("2006-01-02 15:04:05")
-    fmt.Println("Profile Call done ! -- Count", len(reviews))
-    item_scraped_count = len(reviews)
-    if (len(reviews) > 0) {
-        scrapStatus = "SUCCESS_SCRAPED"
+        // Profile URL Call
+        wg.Add(1) // add PROFILE call
+        start_time = time.Now().UTC().Format("2006-01-02 15:04:05")
+        callProfileURL(spider, &wg)
+        fmt.Println("Waiting...")
+        wg.Wait() // Wait for completing all calls
+        finish_time = time.Now().UTC().Format("2006-01-02 15:04:05")
+        fmt.Println("Profile Call done ! -- Count", len(reviews))
+        item_scraped_count = len(reviews)
+        if (len(reviews) > 0) {
+            scrapStatus = "SUCCESS_SCRAPED"
+        } else {
+            if (scrapStatus == "") {
+                scrapStatus = "NO_REVIEWS"
+            }
+        }
+        // Set higher cout of review in histogram
+        if (histogram.Primary.Total_reviews < int32(len(reviews))) {
+            histogram.Primary.Total_reviews = int32(len(reviews))
+        }  
+        dumpReviews(spider.filename, spider)
+        dumpMetaData(spider)
+        fmt.Println("Scrapping - ", scrapStatus)
     } else {
-        if (scrapStatus == "") {
-            scrapStatus = "NO_REVIEWS"
-        }
+        fmt.Println("Business have not profile_key.")
+        scrapStatus = "NO_SEARCH_RESULTS"
+        fmt.Println("Scrapping - ", scrapStatus)
     }
-    // Set higher cout of review in histogram
-    if (histogram.Primary.Total_reviews < int32(len(reviews))) {
-        histogram.Primary.Total_reviews = int32(len(reviews))
-    }  
-    dumpReviews(spider.filename)
-    dumpMetaData(spider)
-    fmt.Println("Scrapping - ", scrapStatus)
 }
 
-func callSearchURL(spider *Spider) {
+func callSearchURL(spider *Spider, wg *sync.WaitGroup) {
     search := getColly(spider.Persona.Proxy)
     search.OnError(func(r *colly.Response, e error) {
         fmt.Println("Status ", r.StatusCode)
+        if retryRequest(r.Request.URL.String()) {
+            fmt.Println("Retry Request- ", r.Request.URL)
+            r.Request.Retry()
+        } else {
+            if r.StatusCode == 404 {
+                scrapStatus = "NO_SEARCH_RESULTS"
+            }
+            if r.StatusCode == 503 {
+                scrapStatus = "SCRAPE_FAILED"
+            }
+            if r.StatusCode == 0 {
+                if strings.Contains(e.Error(), "Client.Timeout") {
+                    scrapStatus = "TIMEOUT"
+                }
+            }
+            log.Println("error:", e, r.Request.URL, string(r.Body), r.StatusCode, retryCount)
+            wg.Done() // done PROFILE call [failed]
+        }
     })
     search.OnHTML(`html`, func(e *colly.HTMLElement) {
         fmt.Println("Response - ", e.Request.URL.String())
-        matchService(spider)
-        // for _, v := range e.ChildTexts("script[type=\"application/json\"]") {
-        //     if strings.Contains(v, "hovercardData") { 
-        //         re := regexp.MustCompile("\"hovercardData\":{(.*?)}}")
-        //         match := re.FindStringSubmatch(v)
-        //         data := "{" + match[0] + "}"
+        
+        // create target
+        var target Target
+        target.Name = spider.BusinessName
+        target.Text = spider.Address.Street + " " + spider.Address.City + "," + spider.Address.State + " " + spider.Address.Zip
 
-        //         var parsed map[string]interface{}
-        //         err := json.Unmarshal([]byte(data), &parsed)
-        //         checkError(err)
+        // create compare target
+        for _, v := range e.ChildTexts("script[type=\"application/json\"]") {
+            if strings.Contains(v, "hovercardData") { 
+                re := regexp.MustCompile("\"hovercardData\":{(.*?)}}")
+                match := re.FindStringSubmatch(v)
+                data := "{" + match[0] + "}"
 
-        //         for _, value := range parsed["hovercardData"].(map[string]interface{}) {
-        //             var tar Target
-        //             for kk, vv := range value.(map[string]interface{}) {
-        //                 if kk == "name" {
-        //                     name := vv.(string)
-        //                     tar.Name = name       
-        //                 }
-        //                 if kk == "addressLines" {
-        //                     addressLines := vv.([]interface {})
-        //                     tar.Text = addressLines 
-        //                 }
-        //                 if kk == "businessUrl" {
-        //                     businessUrl := vv.(string)
-        //                     tar.Url = businessUrl 
-        //                 }
-        //                 if kk == "numReviews" {
-        //                     numReviews := vv.(float64)
-        //                     tar.Review_count = numReviews 
-        //                 }
-        //             }
-        //             compare_targets = append(compare_targets, tar)
-        //         }
-        //     }
-        // }
+                var parsed map[string]interface{}
+                err := json.Unmarshal([]byte(data), &parsed)
+                checkError(err)
 
+                for _, value := range parsed["hovercardData"].(map[string]interface{}) {
+                    var tar CompareTarget
+                    for kk, vv := range value.(map[string]interface{}) {
+                        if kk == "name" {
+                            name := vv.(string)
+                            tar.Name = name       
+                        }
+                        if kk == "addressLines" {
+                            addressLines := vv.([]interface {})
+                            stringAddress := fmt.Sprintf("%v", addressLines)
+                            stringAddress = stringAddress[1 : strings.Index(stringAddress, "]")]
+                            tar.Text = stringAddress
+                        }
+                        if kk == "businessUrl" {
+                            businessUrl := vv.(string)
+                            tar.Url = businessUrl 
+                        }
+                        if kk == "numReviews" {
+                            numReviews := vv.(float64)
+                            tar.Review_count = numReviews 
+                        }
+                    }
+                    compare_targets = append(compare_targets, tar)
+                }
+            }
+        }
+
+        // create payload for match sevice
+        payload = MatchServicePayload{
+            Client_id:"unknown",
+            Target:target,
+            Compare_targets:compare_targets,
+            Winner:false,
+        }
+
+        matchService(spider, payload, wg)
     })
+
     address := spider.Address.Street + " " + spider.Address.State + " " + spider.Address.City + " " + spider.Address.Zip
     addressOutput := url.QueryEscape(address)
     nameOutput := url.QueryEscape(spider.BusinessName)
@@ -393,32 +457,32 @@ func callSearchURL(spider *Spider) {
     search.Visit(url)
 }
 
-func matchService(spider *Spider){
-    fmt.Println("hello")
-    // match := colly.NewCollector()
-    match := getColly(spider.Persona.Proxy)
-    match.SetRequestTimeout(60 * time.Second)
+func matchService(spider *Spider, payload MatchServicePayload, wg *sync.WaitGroup){
+    match := colly.NewCollector()
+    // match := getColly(spider.Persona.Proxy)
     match.OnResponse(func(r *colly.Response) {
-        fmt.Println(string(r.Body))
+        data := &MatchServiceResponse{}
+        err := json.Unmarshal(r.Body, data)
+        checkError(err)
+        result := data.Compare_targets[data.Winner]
+        spider.ProfileKey = "https://www.yelp.com" + result.Url
+        wg.Done()
     })
 
     match.OnError(func(r *colly.Response, e error) {
-        fmt.Println("Status ", r.StatusCode)
+        fmt.Println("Status ", r.StatusCode) 
         fmt.Println("error:", e, r.Request.URL, string(r.Body), r.StatusCode)
+        wg.Done()
     })
 
     match.OnRequest(func(r *colly.Request) {
-        fmt.Println("Request*** - ", r.URL.String())
+        fmt.Println("Request - ", r.URL.String())
+        r.Headers.Set("Content-Type", "application/json;charset=UTF-8")
     })
-    payload := []byte(`{"client_id":"unknown", "target": {"name": "Home Alarm - ADT Authorized Dealer", "text": "7733 Palm Ave, Lemon Grove, CA 91945"}, "compare_targets": [{"name": "Home Alarm - Authorized ADT Dealer", "url": "https://www.yelp.com/biz/home-alarm-authorized-adt-dealer-lemon-grove", "text": "7733 Palm Ave,Lemon Grove, CA 91945", "review_count": 72}, {"name": "Smart Home Alarm LLC - Authorized ADT Dealer", "url": "https://www.yelp.com/biz/smart-home-alarm-authorized-adt-dealer-la-mesa", "text": "4817 Palm Ave,La Mesa, CA 91942", "review_count": 27}, {"name": "ADT Security Services", "url": "https://www.yelp.com/biz/adt-security-services-san-diego-34", "text": "3830 Calle Fortunada,San Diego, CA 92123", "review_count": 216}, {"name": "Zions Security Alarms - ADT Authorized Dealer", "url": "https://www.yelp.com/biz/zions-security-alarms-adt-authorized-dealer-poway", "text": "12537 Holland Pl,Poway, CA 92064", "review_count": 0}, {"name": "Alarm2000", "url": "https://www.yelp.com/biz/alarm2000-san-diego", "text": "3830 Valley Centre Dr,San Diego, CA 92130", "review_count": 53}, {"name": "Alert 360 Home Security", "url": "https://www.yelp.com/biz/alert-360-home-security-poway-3", "text": "13135 Danielson St,Poway, CA 92064", "review_count": 10}, {"name": "ERS Security Alarm Systems", "url": "https://www.yelp.com/biz/ers-security-alarm-systems-el-monte", "text": "4538 Santa Anita Ave,El Monte, CA 91731", "review_count": 71}, {"name": "Sss Security", "url": "https://www.yelp.com/biz/sss-security-pomona", "text": "Pomona, CA 91767", "review_count": 1}], "winner":false}`)
+    reqBodyBytes := new(bytes.Buffer)
+    json.NewEncoder(reqBodyBytes).Encode(payload)
 
-    // match.Request("POST",
-    //     "http://business-matching.asyncro/match",
-    //     strings.NewReader(`{"client_id":"unknown", "target": {"name": "Home Alarm - ADT Authorized Dealer", "text": "7733 Palm Ave, Lemon Grove, CA 91945"}, "compare_targets": [{"name": "Home Alarm - Authorized ADT Dealer", "url": "https://www.yelp.com/biz/home-alarm-authorized-adt-dealer-lemon-grove", "text": "7733 Palm Ave,Lemon Grove, CA 91945", "review_count": 72}, {"name": "Smart Home Alarm LLC - Authorized ADT Dealer", "url": "https://www.yelp.com/biz/smart-home-alarm-authorized-adt-dealer-la-mesa", "text": "4817 Palm Ave,La Mesa, CA 91942", "review_count": 27}, {"name": "ADT Security Services", "url": "https://www.yelp.com/biz/adt-security-services-san-diego-34", "text": "3830 Calle Fortunada,San Diego, CA 92123", "review_count": 216}, {"name": "Zions Security Alarms - ADT Authorized Dealer", "url": "https://www.yelp.com/biz/zions-security-alarms-adt-authorized-dealer-poway", "text": "12537 Holland Pl,Poway, CA 92064", "review_count": 0}, {"name": "Alarm2000", "url": "https://www.yelp.com/biz/alarm2000-san-diego", "text": "3830 Valley Centre Dr,San Diego, CA 92130", "review_count": 53}, {"name": "Alert 360 Home Security", "url": "https://www.yelp.com/biz/alert-360-home-security-poway-3", "text": "13135 Danielson St,Poway, CA 92064", "review_count": 10}, {"name": "ERS Security Alarm Systems", "url": "https://www.yelp.com/biz/ers-security-alarm-systems-el-monte", "text": "4538 Santa Anita Ave,El Monte, CA 91731", "review_count": 71}, {"name": "Sss Security", "url": "https://www.yelp.com/biz/sss-security-pomona", "text": "Pomona, CA 91767", "review_count": 1}], "winner":false}`),
-    //     nil,
-    //     nil,
-    // )
-    match.PostRaw("http://business-matching.asyncro/match", payload)
+    match.PostRaw("http://127.0.0.1:9999/match", reqBodyBytes.Bytes())
 }
 
 func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
@@ -803,14 +867,21 @@ func checkError(err error) {
     }
 }
 
-func dumpReviews(fname string) {
+func dumpReviews(fname string, spider *Spider) {
     file, err := os.OpenFile(fname, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0755)
     if err != nil {
         panic(err)
     }
     defer file.Close()
     for _, v := range reviews {
+
+        if contains(spider.LastReviewHashes, v.ReviewHash) {
+            fmt.Println("Review hash matches one already seen")
+            scrapStatus = "NO_REVIEWS_SINCE_LAST_MATCH"
+            break;
+        }
         _, err := WriteDataToFileAsJSON(v, file)
+
         if err != nil {
             panic(err)
         }
@@ -905,6 +976,16 @@ func applyHashKey(review *ReviewFomate) {
     review.ReviewHash = hex.EncodeToString(h.Sum(nil))
 }
 
+func contains(s []string, str string) bool {
+    for _, v := range s {
+        if v == str {
+            return true
+        }
+    }
+
+    return false
+}
+
 func hasText(review *ReviewFomate) bool {
     return review.Text != ""
 }
@@ -934,7 +1015,6 @@ func encodeFielsToB64(review *ReviewFomate) {
             review.OwnerReply[key].Author_name = base64.StdEncoding.EncodeToString([]byte(obj.Author_name))
         }
     }
-
 }
 
 func retryRequest(url string) bool {

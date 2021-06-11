@@ -277,7 +277,7 @@ func getColly(proxy string) *colly.Collector {
         DomainGlob:  "*",
         Parallelism: 5,
         Delay:       2 * time.Second,
-        RandomDelay: 2 * time.Second,
+        RandomDelay: 1 * time.Second,
     })
 
     return c
@@ -515,9 +515,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
                 scrapStatus = "SCRAPE_FAILED"
             }
             if r.StatusCode == 0 {
-                if strings.Contains(e.Error(), "Client.Timeout") {
-                    scrapStatus = "TIMEOUT"
-                }
+                scrapStatus = "TIMEOUT"
             }
             log.Println("error:", e, r.Request.URL, string(r.Body), r.StatusCode, retryCount)
             wg.Done() // done PROFILE call [failed]
@@ -529,74 +527,82 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
         // Collect Business ID
         businessId := strings.Split(e.ChildAttr("meta[name=\"yelp-biz-id\"]", "content"), "\n")[0]
         if len(businessId) == 0 {
-            wg.Done() // done PROFILE call
-            fmt.Println("Format Changed")
-            scrapStatus = "PAGE_FORMAT_CHANGE"
-            return
+            if retryRequest(e.Request.URL.String()) {
+                fmt.Println("Retry Request- ", e.Request.URL)
+                e.Request.Retry()
+            } else {
+                wg.Done() // done PROFILE call
+                fmt.Println("Format Changed")
+                scrapStatus = "PAGE_FORMAT_CHANGE"
+                return
+            }
         }
         fmt.Println("Business ID:", businessId)
 
-        // ===================================
-        // Collecting Histogram
-        // ===================================
         
-        for _, v := range e.ChildTexts("script[type=\"application/ld+json\"]") {
-            if strings.Contains(v, "aggregateRating") {             
-                data := HistogramFormat{}
-                err := json.Unmarshal([]byte(v), &data)
-                checkError(err)
-                histogram.Primary = Primary{
-                    Score:         data.AggregateRating.RatingValue,
-                    Total_reviews: data.AggregateRating.ReviewCount,
+        if len(businessId) > 0 {
+            // ===================================
+            // Collecting Histogram
+            // ===================================
+            
+            for _, v := range e.ChildTexts("script[type=\"application/ld+json\"]") {
+                if strings.Contains(v, "aggregateRating") {             
+                    data := HistogramFormat{}
+                    err := json.Unmarshal([]byte(v), &data)
+                    checkError(err)
+                    histogram.Primary = Primary{
+                        Score:         data.AggregateRating.RatingValue,
+                        Total_reviews: data.AggregateRating.ReviewCount,
+                    }
+                    fmt.Println("Histogram:", histogram)
                 }
-                fmt.Println("Histogram:", histogram)
             }
-        }
-        
-        // ===================================
-        // Normal Review Scrap
-        // ===================================
 
-        // Prepare URL
-        RevUrl := "https://www.yelp.com/biz/" + businessId + "/review_feed?rl=en&sort_by=date_desc"
+            // ===================================
+            // Normal Review Scrap
+            // ===================================
 
-        // Collect Review Count
-        jsonStr := e.ChildText("script[type=\"application/ld+json\"]")
-        re := regexp.MustCompile("\"reviewCount\":(\\d*)")
-        match := re.FindStringSubmatch(jsonStr)
-        if len(match) >= 2 {
-            reviewCount, err := strconv.Atoi(match[1])
+            // Prepare URL
+            RevUrl := "https://www.yelp.com/biz/" + businessId + "/review_feed?rl=en&sort_by=date_desc"
+
+            // Collect Review Count
+            jsonStr := e.ChildText("script[type=\"application/ld+json\"]")
+            re := regexp.MustCompile("\"reviewCount\":(\\d*)")
+            match := re.FindStringSubmatch(jsonStr)
+            if len(match) >= 2 {
+                reviewCount, err := strconv.Atoi(match[1])
+                if err != nil {
+                    panic(err)
+                }
+                fmt.Println("Normal Reviews:", reviewCount)
+                minimal_review_count = reviewCount
+                // Call all pages.
+                var reviewCollector = normalReview(spider, wg)
+                for i := 0; i < reviewCount; i += 10 {
+                    wg.Add(1) // add REVIEW call
+                    reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(i))
+                }
+            }
+
+            // ===================================
+            // Non Recommanded Review Scrap
+            // ===================================
+
+            // Prepare Non Recommanded URL
+            nonUrl, err := url.Parse("/not_recommended_reviews/" + businessId)
             if err != nil {
-                panic(err)
+                log.Fatal(err)
             }
-            fmt.Println("Normal Reviews:", reviewCount)
-            minimal_review_count = reviewCount
-            // Call all pages.
-            var reviewCollector = normalReview(spider, wg)
-            for i := 0; i < reviewCount; i += 10 {
-                wg.Add(1) // add REVIEW call
-                reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(i))
-            }
+            
+            nonRevURL := e.Request.URL.ResolveReference(nonUrl)
+
+            wg.Add(1) // add NON_RECOMMENDED_ONCE call
+
+            // Fist visit to non recommanded URL
+            nonRecommandedReviewUrlCall(spider, wg, nonRevURL.String())
+
+            wg.Done() // done PROFILE call [success]
         }
-
-        // ===================================
-        // Non Recommanded Review Scrap
-        // ===================================
-
-        // Prepare Non Recommanded URL
-        nonUrl, err := url.Parse("/not_recommended_reviews/" + businessId)
-        if err != nil {
-            log.Fatal(err)
-        }
-        
-        nonRevURL := e.Request.URL.ResolveReference(nonUrl)
-
-        wg.Add(1) // add NON_RECOMMENDED_ONCE call
-
-        // Fist visit to non recommanded URL
-        nonRecommandedReviewUrlCall(spider, wg, nonRevURL.String())
-
-        wg.Done() // done PROFILE call [success]
     })
 
     profile.Visit(Profile_key)
@@ -707,9 +713,7 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
                     scrapStatus = "SCRAPE_FAILED"
                 }
                 if r.StatusCode == 0 {
-                    if strings.Contains(e.Error(), "Client.Timeout") {
-                        scrapStatus = "TIMEOUT"
-                    }
+                    scrapStatus = "TIMEOUT"
                 } 
             }            
             log.Println("error:", e, r.Request.URL, string(r.Body))
@@ -908,7 +912,7 @@ func WriteDataToFileAsJSON(data interface{}, file *os.File) (int, error) {
     //write data as buffer to json encoder
     buffer := new(bytes.Buffer)
     encoder := json.NewEncoder(buffer)
-    // encoder.SetIndent("", "\t")
+    encoder.SetEscapeHTML(false)
 
     err := encoder.Encode(data)
     if err != nil {
@@ -987,6 +991,11 @@ func applyHashKey(review *ReviewFomate) {
         lstForHash = append(lstForHash, review.Author_name)
     }
     rawStr, _ := json.Marshal(lstForHash)
+
+    rawStr = bytes.Replace(rawStr, []byte(`\u003c`), []byte("<"), -1)
+    rawStr = bytes.Replace(rawStr, []byte(`\u003e`), []byte(">"), -1)
+    rawStr = bytes.Replace(rawStr, []byte(`\u0026`), []byte("&"), -1)
+    
     h := md5.New()
     io.WriteString(h, string(rawStr))
     review.ReviewHash = hex.EncodeToString(h.Sum(nil))

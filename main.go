@@ -24,6 +24,7 @@ import (
 
     "github.com/gocolly/colly/v2"
     "github.com/spf13/cobra"
+    "github.com/joho/godotenv"
 )
 
 // Define required Structs
@@ -346,7 +347,8 @@ func yelpSpiderRun(args, op, sval string) {
         callProfileURL(spider, &wg)
         fmt.Println("Waiting...")
         wg.Wait() // Wait for completing all calls
-        finish_time = time.Now().UTC().Format("2006-01-02 15:04:05")
+        finish_time = time.Now().UTC().Format("2006-01-02 15:04:05")  
+        dumpReviews(spider.filename, spider)
         fmt.Println("Profile Call done ! -- Count", len(reviews))
         item_scraped_count = len(reviews)
         if (len(reviews) > 0) {
@@ -359,8 +361,7 @@ func yelpSpiderRun(args, op, sval string) {
         // Set higher cout of review in histogram
         if (histogram.Primary.Total_reviews < int32(len(reviews))) {
             histogram.Primary.Total_reviews = int32(len(reviews))
-        }  
-        dumpReviews(spider.filename, spider)
+        }
         dumpMetaData(spider)
         fmt.Println("Scrapping - ", scrapStatus)
     } else {
@@ -482,7 +483,21 @@ func matchService(spider *Spider, payload MatchServicePayload, wg *sync.WaitGrou
     reqBodyBytes := new(bytes.Buffer)
     json.NewEncoder(reqBodyBytes).Encode(payload)
 
-    match.PostRaw("http://127.0.0.1:9999/match", reqBodyBytes.Bytes())
+    err := godotenv.Load(".env")
+    if err != nil {
+        log.Fatalf("Error loading .env file")
+    }
+
+    matchUrl := os.Getenv("MATCH_SERVICE_URL")
+
+    _LOCAL_DEV_ENVIRONMENT := os.Getenv("LOCAL_DEV_ENVIRONMENT")
+
+    if _LOCAL_DEV_ENVIRONMENT == "true" {
+        devMatchUrl := "http://127.0.0.1:9999/match"
+        match.PostRaw(devMatchUrl, reqBodyBytes.Bytes())
+    } else {
+        match.PostRaw(matchUrl, reqBodyBytes.Bytes())
+    }       
 }
 
 func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
@@ -873,11 +888,12 @@ func dumpReviews(fname string, spider *Spider) {
         panic(err)
     }
     defer file.Close()
-    for _, v := range reviews {
+    for i, v := range reviews {
 
         if contains(spider.LastReviewHashes, v.ReviewHash) {
             fmt.Println("Review hash matches one already seen")
             scrapStatus = "NO_REVIEWS_SINCE_LAST_MATCH"
+            reviews = reviews[:i]
             break;
         }
         _, err := WriteDataToFileAsJSON(v, file)

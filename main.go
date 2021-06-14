@@ -489,15 +489,7 @@ func matchService(spider *Spider, payload MatchServicePayload, wg *sync.WaitGrou
     }
 
     matchUrl := os.Getenv("MATCH_SERVICE_URL")
-
-    _LOCAL_DEV_ENVIRONMENT := os.Getenv("LOCAL_DEV_ENVIRONMENT")
-
-    if _LOCAL_DEV_ENVIRONMENT == "true" {
-        devMatchUrl := "http://127.0.0.1:9999/match"
-        match.PostRaw(devMatchUrl, reqBodyBytes.Bytes())
-    } else {
-        match.PostRaw(matchUrl, reqBodyBytes.Bytes())
-    }       
+    match.PostRaw(matchUrl, reqBodyBytes.Bytes())      
 }
 
 func callProfileURL(spider *Spider, wg *sync.WaitGroup) {

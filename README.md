@@ -25,6 +25,8 @@ Development environment also needs flask app to run locally. So open new tab in 
 
 * Install Flask
   `pip install flask`
-* Export variable `export LOCAL_DEV_ENVIRONMENT=true`
 * Run Flask locally:
   `FLASK_APP=match_service_stub.py flask run --host=127.0.0.1 --port=9999`
+
+  If Development environment,set MATCH_SERVICE_URL in .env :
+  	`MATCH_SERVICE_URL=http://127.0.0.1:9999/match`

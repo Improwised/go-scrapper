@@ -32,7 +32,7 @@ type Spider struct {
     ProfileKey       string   `json:"profile_key"`
     BusinessName     string   `json:"business_name"`
     LastReviewHashes []string `json:"last_review_hashes"`
-    BusinessID       int      `json:"business_id"`
+    businessID       int      `json:"business_id"`
     ClientID         int      `json:"client_id"`
     BatchID          int      `json:"batch_id"`
     TaskID           int      `json:"task_id"`
@@ -300,6 +300,12 @@ var (
     responseBytes        int
     Profile_key          string
     payload              MatchServicePayload
+    last_review_hash     bool
+    loop_start           int
+    loop_end             int
+    non_loop_start       int
+    non_loop_end         int
+    nonRecommandedUrl    string
     mu                   sync.Mutex
 )
 
@@ -347,7 +353,14 @@ func yelpSpiderRun(args, op, sval string) {
         callProfileURL(spider, &wg)
         fmt.Println("Waiting...")
         wg.Wait() // Wait for completing all calls
-        finish_time = time.Now().UTC().Format("2006-01-02 15:04:05")  
+
+        if len(spider.LastReviewHashes) > 0 {
+            wg.Add(1)
+            lastReviewRun(spider, &wg)
+            wg.Wait()
+        }
+           
+        finish_time = time.Now().UTC().Format("2006-01-02 15:04:05") 
         dumpReviews(spider.filename, spider)
         fmt.Println("Profile Call done ! -- Count", len(reviews))
         item_scraped_count = len(reviews)
@@ -363,7 +376,7 @@ func yelpSpiderRun(args, op, sval string) {
             histogram.Primary.Total_reviews = int32(len(reviews))
         }
         dumpMetaData(spider)
-        fmt.Println("Scrapping - ", scrapStatus)
+        fmt.Println("Scrapping - ", scrapStatus)     
     } else {
         fmt.Println("Business have not profile_key.")
         scrapStatus = "NO_SEARCH_RESULTS"
@@ -517,8 +530,8 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
         fmt.Println("Response - ", e.Request.URL.String())
 
         // Collect Business ID
-        businessId := strings.Split(e.ChildAttr("meta[name=\"yelp-biz-id\"]", "content"), "\n")[0]
-        if len(businessId) == 0 {
+        business_id = strings.Split(e.ChildAttr("meta[name=\"yelp-biz-id\"]", "content"), "\n")[0]
+        if len(business_id) == 0 {
             if retryRequest(e.Request.URL.String()) {
                 fmt.Println("Retry Request- ", e.Request.URL)
                 e.Request.Retry()
@@ -529,10 +542,10 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
                 return
             }
         }
-        fmt.Println("Business ID:", businessId)
+        fmt.Println("Business ID:", business_id)
 
         
-        if len(businessId) > 0 {
+        if len(business_id) > 0 {
             // ===================================
             // Collecting Histogram
             // ===================================
@@ -555,7 +568,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
             // ===================================
 
             // Prepare URL
-            RevUrl := "https://www.yelp.com/biz/" + businessId + "/review_feed?rl=en&sort_by=date_desc"
+            RevUrl := "https://www.yelp.com/biz/" + business_id + "/review_feed?rl=en&sort_by=date_desc"
 
             // Collect Review Count
             jsonStr := e.ChildText("script[type=\"application/ld+json\"]")
@@ -570,9 +583,17 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
                 minimal_review_count = reviewCount
                 // Call all pages.
                 var reviewCollector = normalReview(spider, wg)
-                for i := 0; i < reviewCount; i += 10 {
-                    wg.Add(1) // add REVIEW call
-                    reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(i))
+                
+                if (len(spider.LastReviewHashes) > 0) {
+                    loop_start = 0
+                    loop_end = 50
+                    wg.Add(1)
+                    lastReviewHashes(spider, wg)
+                } else {
+                    for i := 0; i < reviewCount; i += 10 {
+                        wg.Add(1) // add REVIEW call
+                        reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(i))
+                    }
                 }
             }
 
@@ -581,7 +602,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
             // ===================================
 
             // Prepare Non Recommanded URL
-            nonUrl, err := url.Parse("/not_recommended_reviews/" + businessId)
+            nonUrl, err := url.Parse("/not_recommended_reviews/" + business_id)
             if err != nil {
                 log.Fatal(err)
             }
@@ -598,6 +619,50 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
     })
 
     profile.Visit(Profile_key)
+}
+
+func lastReviewHashes(spider *Spider, wg *sync.WaitGroup) {
+    // Prepare URL
+    RevUrl := "https://www.yelp.com/biz/" + business_id + "/review_feed?rl=en&sort_by=date_desc"
+    var reviewCollector = normalReview(spider, wg)
+    for  loop_start < loop_end {
+        wg.Add(1) // add REVIEW call
+        reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(loop_start))
+        loop_start += 10    
+    }
+    wg.Done()
+}
+
+func lastReviewRun(spider *Spider, wg *sync.WaitGroup) {
+    fmt.Println(len(reviews))
+    if len(reviews) > 0 {
+        CheckLastReviewHash(spider)
+        for  last_review_hash != true {
+            wg.Add(1)
+            loop_start = loop_end
+            loop_end += 50
+            lastReviewHashes(spider, wg)
+            wg.Wait()
+            wg.Add(1)
+            non_loop_start = non_loop_end
+            non_loop_end += 50
+            lastReviewHashesfornon(spider, wg)
+            wg.Wait()
+            lastReviewRun(spider, wg)
+        }
+    }
+    wg.Done()
+}
+
+func lastReviewHashesfornon(spider *Spider, wg *sync.WaitGroup) {
+    // Prepare URL
+    nonRecommandedCollector := nonRecommandedReviewUrlCallFollowup(spider, wg)
+    for  non_loop_start < non_loop_end {
+        wg.Add(1) // add REVIEW call
+        nonRecommandedCollector.Visit(nonRecommandedUrl + "?not_recommended_start=" + strconv.Itoa(non_loop_start))
+        non_loop_start += 10    
+    }
+    wg.Done()
 }
 
 func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
@@ -739,12 +804,19 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
 
         fmt.Println("Non recommanded Reviews", nonReviewCount)
         minimal_review_count = nonReviewCount
-
+        nonRecommandedUrl = e.Request.URL.String()
         nonRecommandedCollector := nonRecommandedReviewUrlCallFollowup(spider, wg)
-        for i := 0; i < nonReviewCount; i += 10 {
-            wg.Add(1) // add NON_RECOMMENDED_REV call
-            visitingUrl := e.Request.URL.String() + "?not_recommended_start=" + strconv.Itoa(i)
-            nonRecommandedCollector.Visit(visitingUrl)
+        if (len(spider.LastReviewHashes) > 0) {
+            non_loop_start = 0
+            non_loop_end = 50
+            wg.Add(1)
+            lastReviewHashesfornon(spider, wg)
+        } else {
+            for i := 0; i < nonReviewCount; i += 10 {
+                wg.Add(1) // add NON_RECOMMENDED_REV call
+                visitingUrl := e.Request.URL.String() + "?not_recommended_start=" + strconv.Itoa(i)
+                nonRecommandedCollector.Visit(visitingUrl)
+            }
         }
         wg.Done() // done NON_RECOMMENDED_ONCE call [success]
     })
@@ -884,18 +956,23 @@ func dumpReviews(fname string, spider *Spider) {
         panic(err)
     }
     defer file.Close()
-    for i, v := range reviews {
-
-        if contains(spider.LastReviewHashes, v.ReviewHash) {
-            fmt.Println("Review hash matches one already seen")
-            scrapStatus = "NO_REVIEWS_SINCE_LAST_MATCH"
-            reviews = reviews[:i]
-            break;
-        }
+    for _, v := range reviews {
         _, err := WriteDataToFileAsJSON(v, file)
 
         if err != nil {
             panic(err)
+        }
+    }
+}
+
+func CheckLastReviewHash(spider *Spider){
+    for i, v := range reviews {
+        if contains(spider.LastReviewHashes, v.ReviewHash) {
+            fmt.Println("Review hash matches one already seen")
+            scrapStatus = "NO_REVIEWS_SINCE_LAST_MATCH"
+            reviews = reviews[:i]
+            last_review_hash = true
+            break
         }
     }
 }

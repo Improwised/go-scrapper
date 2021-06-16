@@ -21,6 +21,7 @@ import (
     "strings"
     "sync"
     "time"
+    "reflect"
 
     "github.com/gocolly/colly/v2"
     "github.com/spf13/cobra"
@@ -478,8 +479,10 @@ func matchService(spider *Spider, payload MatchServicePayload, wg *sync.WaitGrou
         data := &MatchServiceResponse{}
         err := json.Unmarshal(r.Body, data)
         checkError(err)
-        result := data.Compare_targets[data.Winner]
-        spider.ProfileKey = "https://www.yelp.com" + result.Url
+        if (reflect.TypeOf(data.Winner).Name() != "bool") {
+            result := data.Compare_targets[data.Winner]
+            spider.ProfileKey = "https://www.yelp.com" + result.Url
+        }
         wg.Done()
     })
 

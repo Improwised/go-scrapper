@@ -21,9 +21,11 @@ import (
     "strings"
     "sync"
     "time"
+    "reflect"
 
     "github.com/gocolly/colly/v2"
     "github.com/spf13/cobra"
+    "github.com/joho/godotenv"
 )
 
 // Define required Structs
@@ -135,6 +137,32 @@ type Primary struct {
 
 type Histogram struct {
     Primary Primary `json:"primary"`
+}
+
+type Target struct {
+    Name string `json:"name"`
+    Text string `json:"text"`
+}
+
+type CompareTarget struct {
+    Name string `json:"name"`
+    Url string `json:"url"`
+    Text string `json:"text"`
+    Review_count float64 `json:"review_count"`
+}
+
+type MatchServicePayload struct {
+    Client_id string `json:"client_id"`
+    Target Target`json:"target"`
+    Compare_targets []CompareTarget `json:"compare_targets"`
+    Winner bool `json:"winner"`
+}
+
+type MatchServiceResponse struct {
+    Client_id string `json:"client_id"`
+    Target Target`json:"target"`
+    Compare_targets []CompareTarget `json:"compare_targets"`
+    Winner int `json:"winner"`
 }
 
 type Meta struct {
@@ -273,11 +301,19 @@ var (
     requestCount         int
     responseBytes        int
     Profile_key          string
+    payload              MatchServicePayload
+    last_review_hash     bool
+    loop_start           int
+    loop_end             int
+    non_loop_start       int
+    non_loop_end         int
+    nonRecommandedUrl    string
     mu                   sync.Mutex
 )
 
 var (
     retryCount = make(map[string]int)
+    compare_targets = make([]CompareTarget, 0, 20)
 )
 
 func yelpSpiderRun(args, op, sval string) {
@@ -285,53 +321,191 @@ func yelpSpiderRun(args, op, sval string) {
     // Initialize variables
     spider := &Spider{filename: op}
     setPlace(args, spider)
+    var wg sync.WaitGroup
+    start_time = time.Now().UTC().Format("2006-01-02 15:04:05")
 
     if spider.ProfileKey == "" {
-        fmt.Println("We are not supporting business without profile key as of now.")
-        os.Exit(1)
+        wg.Add(1)
+        callSearchURL(spider, &wg)
+        wg.Wait()
     }
-    Profile_key = spider.ProfileKey
+    
+    if len(spider.ProfileKey) > 0 {
+        Profile_key = spider.ProfileKey
 
-    //if profile_key have different host
-    if strings.Contains(spider.ProfileKey, "yelp.") {
-        Profile_key = strings.TrimRight(Profile_key, "\n")
-        u, err := url.Parse(Profile_key)
-        if err != nil {
-            panic(err)
-        } 
-        if (u.Scheme != "http" && u.Scheme != "https") {
-            u.Scheme = "https"
+        //if profile_key have different host
+        if strings.Contains(spider.ProfileKey, "yelp.") {
+            Profile_key = strings.TrimRight(Profile_key, "\n")
+            u, err := url.Parse(Profile_key)
+            if err != nil {
+                panic(err)
+            } 
+            if (u.Scheme != "http" && u.Scheme != "https") {
+                u.Scheme = "https"
+            }
+            if (u.Host != "yelp.com" && u.Host != "www.yelp.com") {
+                u.Host = "www.yelp.com"
+            }
+            Profile_key = u.String()  
         }
-        if (u.Host != "yelp.com" && u.Host != "www.yelp.com") {
-            u.Host = "www.yelp.com"
-        }
-        Profile_key = u.String()  
-    }
 
-    // Profile URL Call
-    var wg sync.WaitGroup
-    wg.Add(1) // add PROFILE call
-    start_time = time.Now().UTC().Format("2006-01-02 15:04:05")
-    callProfileURL(spider, &wg)
-    fmt.Println("Waiting...")
-    wg.Wait() // Wait for completing all calls
-    finish_time = time.Now().UTC().Format("2006-01-02 15:04:05")
-    fmt.Println("Profile Call done ! -- Count", len(reviews))
-    item_scraped_count = len(reviews)
-    if (len(reviews) > 0) {
-        scrapStatus = "SUCCESS_SCRAPED"
+        // Profile URL Call
+        wg.Add(1) // add PROFILE call
+        callProfileURL(spider, &wg)
+        fmt.Println("Waiting...")
+        wg.Wait() // Wait for completing all calls
+
+        if len(spider.LastReviewHashes) > 0 {
+            wg.Add(1)
+            callLastReviewURL(spider, &wg)
+            wg.Wait()
+        }
+           
+        dumpReviews(spider.filename)
+        fmt.Println("Profile Call done ! -- Count", len(reviews))
+        finish_time = time.Now().UTC().Format("2006-01-02 15:04:05") 
+        item_scraped_count = len(reviews)
+        if (len(reviews) > 0) {
+            scrapStatus = "SUCCESS_SCRAPED"
+        } else {
+            if (scrapStatus == "") {
+                scrapStatus = "NO_REVIEWS"
+            }
+        }
+        // Set higher cout of review in histogram
+        if (histogram.Primary.Total_reviews < int32(len(reviews))) {
+            histogram.Primary.Total_reviews = int32(len(reviews))
+        }
+        dumpMetaData(spider)
+        fmt.Println("Scrapping - ", scrapStatus)     
     } else {
-        if (scrapStatus == "") {
-            scrapStatus = "NO_REVIEWS"
-        }
+        fmt.Println("Business have not profile_key.")
+        scrapStatus = "NO_SEARCH_RESULTS"
+        fmt.Println("Scrapping - ", scrapStatus)
     }
-    // Set higher cout of review in histogram
-    if (histogram.Primary.Total_reviews < int32(len(reviews))) {
-        histogram.Primary.Total_reviews = int32(len(reviews))
-    }  
-    dumpReviews(spider.filename)
-    dumpMetaData(spider)
-    fmt.Println("Scrapping - ", scrapStatus)
+}
+
+func callSearchURL(spider *Spider, wg *sync.WaitGroup) {
+    search := getColly(spider.Persona.Proxy)
+    search.OnError(func(r *colly.Response, e error) {
+        fmt.Println("Status ", r.StatusCode)
+        if retryRequest(r.Request.URL.String()) {
+            fmt.Println("Retry Request- ", r.Request.URL)
+            r.Request.Retry()
+        } else {
+            if r.StatusCode == 404 {
+                scrapStatus = "NO_SEARCH_RESULTS"
+            }
+            if r.StatusCode == 503 {
+                scrapStatus = "SCRAPE_FAILED"
+            }
+            if r.StatusCode == 0 {
+                if strings.Contains(e.Error(), "Client.Timeout") {
+                    scrapStatus = "TIMEOUT"
+                }
+            }
+            log.Println("error:", e, r.Request.URL, string(r.Body), r.StatusCode, retryCount)
+            wg.Done() // done PROFILE call [failed]
+        }
+    })
+    search.OnHTML(`html`, func(e *colly.HTMLElement) {
+        fmt.Println("Response - ", e.Request.URL.String())
+        
+        // create target
+        var target Target
+        target.Name = spider.BusinessName
+        target.Text = spider.Address.Street + " " + spider.Address.City + "," + spider.Address.State + " " + spider.Address.Zip
+
+        // create compare target
+        for _, v := range e.ChildTexts("script[type=\"application/json\"]") {
+            if strings.Contains(v, "hovercardData") { 
+                re := regexp.MustCompile("\"hovercardData\":{(.*?)}}")
+                match := re.FindStringSubmatch(v)
+                data := "{" + match[0] + "}"
+
+                var parsed map[string]interface{}
+                err := json.Unmarshal([]byte(data), &parsed)
+                checkError(err)
+
+                for _, value := range parsed["hovercardData"].(map[string]interface{}) {
+                    var tar CompareTarget
+                    for kk, vv := range value.(map[string]interface{}) {
+                        if kk == "name" {
+                            name := vv.(string)
+                            tar.Name = name       
+                        }
+                        if kk == "addressLines" {
+                            addressLines := vv.([]interface {})
+                            stringAddress := fmt.Sprintf("%v", addressLines)
+                            stringAddress = stringAddress[1 : strings.Index(stringAddress, "]")]
+                            tar.Text = stringAddress
+                        }
+                        if kk == "businessUrl" {
+                            businessUrl := vv.(string)
+                            tar.Url = businessUrl 
+                        }
+                        if kk == "numReviews" {
+                            numReviews := vv.(float64)
+                            tar.Review_count = numReviews 
+                        }
+                    }
+                    compare_targets = append(compare_targets, tar)
+                }
+            }
+        }
+
+        // create payload for match sevice
+        payload = MatchServicePayload{
+            Client_id:"unknown",
+            Target:target,
+            Compare_targets:compare_targets,
+            Winner:false,
+        }
+
+        matchService(spider, payload, wg)
+    })
+
+    address := spider.Address.Street + " " + spider.Address.State + " " + spider.Address.City + " " + spider.Address.Zip
+    addressOutput := url.QueryEscape(address)
+    nameOutput := url.QueryEscape(spider.BusinessName)
+    url :=  "https://www.yelp.com/search?find_desc=" + nameOutput + "&find_loc=" + addressOutput
+    search.Visit(url)
+}
+
+func matchService(spider *Spider, payload MatchServicePayload, wg *sync.WaitGroup){
+    match := colly.NewCollector()
+    // match := getColly(spider.Persona.Proxy)
+    match.OnResponse(func(r *colly.Response) {
+        data := &MatchServiceResponse{}
+        err := json.Unmarshal(r.Body, data)
+        checkError(err)
+        if (reflect.TypeOf(data.Winner).Name() != "bool") {
+            result := data.Compare_targets[data.Winner]
+            spider.ProfileKey = "https://www.yelp.com" + result.Url
+        }
+        wg.Done()
+    })
+
+    match.OnError(func(r *colly.Response, e error) {
+        fmt.Println("Status ", r.StatusCode) 
+        fmt.Println("error:", e, r.Request.URL, string(r.Body), r.StatusCode)
+        wg.Done()
+    })
+
+    match.OnRequest(func(r *colly.Request) {
+        fmt.Println("Request - ", r.URL.String())
+        r.Headers.Set("Content-Type", "application/json;charset=UTF-8")
+    })
+    reqBodyBytes := new(bytes.Buffer)
+    json.NewEncoder(reqBodyBytes).Encode(payload)
+
+    err := godotenv.Load(".env.example")
+    if err != nil {
+        log.Fatal("Error loading .env.example file")
+    }
+
+    matchUrl := os.Getenv("MATCH_SERVICE_URL")
+    match.PostRaw(matchUrl, reqBodyBytes.Bytes())      
 }
 
 func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
@@ -359,8 +533,8 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
         fmt.Println("Response - ", e.Request.URL.String())
 
         // Collect Business ID
-        businessId := strings.Split(e.ChildAttr("meta[name=\"yelp-biz-id\"]", "content"), "\n")[0]
-        if len(businessId) == 0 {
+        business_id = strings.Split(e.ChildAttr("meta[name=\"yelp-biz-id\"]", "content"), "\n")[0]
+        if len(business_id) == 0 {
             if retryRequest(e.Request.URL.String()) {
                 fmt.Println("Retry Request- ", e.Request.URL)
                 e.Request.Retry()
@@ -371,10 +545,10 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
                 return
             }
         }
-        fmt.Println("Business ID:", businessId)
+        fmt.Println("Business ID:", business_id)
 
         
-        if len(businessId) > 0 {
+        if len(business_id) > 0 {
             // ===================================
             // Collecting Histogram
             // ===================================
@@ -397,7 +571,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
             // ===================================
 
             // Prepare URL
-            RevUrl := "https://www.yelp.com/biz/" + businessId + "/review_feed?rl=en&sort_by=date_desc"
+            RevUrl := "https://www.yelp.com/biz/" + business_id + "/review_feed?rl=en&sort_by=date_desc"
 
             // Collect Review Count
             jsonStr := e.ChildText("script[type=\"application/ld+json\"]")
@@ -412,9 +586,17 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
                 minimal_review_count = reviewCount
                 // Call all pages.
                 var reviewCollector = normalReview(spider, wg)
-                for i := 0; i < reviewCount; i += 10 {
-                    wg.Add(1) // add REVIEW call
-                    reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(i))
+                
+                if (len(spider.LastReviewHashes) > 0) {
+                    loop_start = 0
+                    loop_end = 50
+                    wg.Add(1)
+                    callNormalReviewLastReviewURL(spider, wg)
+                } else {
+                    for i := 0; i < reviewCount; i += 10 {
+                        wg.Add(1) // add REVIEW call
+                        reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(i))
+                    }
                 }
             }
 
@@ -423,7 +605,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
             // ===================================
 
             // Prepare Non Recommanded URL
-            nonUrl, err := url.Parse("/not_recommended_reviews/" + businessId)
+            nonUrl, err := url.Parse("/not_recommended_reviews/" + business_id)
             if err != nil {
                 log.Fatal(err)
             }
@@ -440,6 +622,53 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
     })
 
     profile.Visit(Profile_key)
+}
+
+func callNormalReviewLastReviewURL(spider *Spider, wg *sync.WaitGroup) {
+    // Prepare URL
+    RevUrl := "https://www.yelp.com/biz/" + business_id + "/review_feed?rl=en&sort_by=date_desc"
+    var reviewCollector = normalReview(spider, wg)
+    for  loop_start < loop_end {
+        wg.Add(1) // add REVIEW call
+        reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(loop_start))
+        loop_start += 10    
+    }
+    wg.Done()
+}
+
+func callLastReviewURL(spider *Spider, wg *sync.WaitGroup) {
+    if len(reviews) > 0 {
+        wg.Done()
+        CheckLastReviewHash(spider)
+        for  last_review_hash != true {
+            wg.Add(1)
+            loop_start = loop_end
+            loop_end += 50
+            callNormalReviewLastReviewURL(spider, wg)
+            wg.Wait()
+            wg.Add(1)
+            non_loop_start = non_loop_end
+            non_loop_end += 50
+            callNonRecommandedLastReviewURL(spider, wg)
+            wg.Wait()
+            wg.Add(1)
+            callLastReviewURL(spider, wg)
+            wg.Wait()
+        }
+    } else {
+        wg.Done()
+    }
+}
+
+func callNonRecommandedLastReviewURL(spider *Spider, wg *sync.WaitGroup) {
+    // Prepare URL
+    nonRecommandedCollector := nonRecommandedReviewUrlCallFollowup(spider, wg)
+    for  non_loop_start < non_loop_end {
+        wg.Add(1) // add REVIEW call
+        nonRecommandedCollector.Visit(nonRecommandedUrl + "?not_recommended_start=" + strconv.Itoa(non_loop_start))
+        non_loop_start += 10    
+    }
+    wg.Done()
 }
 
 func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
@@ -581,12 +810,19 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
 
         fmt.Println("Non recommanded Reviews", nonReviewCount)
         minimal_review_count = nonReviewCount
-
+        nonRecommandedUrl = e.Request.URL.String()
         nonRecommandedCollector := nonRecommandedReviewUrlCallFollowup(spider, wg)
-        for i := 0; i < nonReviewCount; i += 10 {
-            wg.Add(1) // add NON_RECOMMENDED_REV call
-            visitingUrl := e.Request.URL.String() + "?not_recommended_start=" + strconv.Itoa(i)
-            nonRecommandedCollector.Visit(visitingUrl)
+        if (len(spider.LastReviewHashes) > 0) {
+            non_loop_start = 0
+            non_loop_end = 50
+            wg.Add(1)
+            callNonRecommandedLastReviewURL(spider, wg)
+        } else {
+            for i := 0; i < nonReviewCount; i += 10 {
+                wg.Add(1) // add NON_RECOMMENDED_REV call
+                visitingUrl := e.Request.URL.String() + "?not_recommended_start=" + strconv.Itoa(i)
+                nonRecommandedCollector.Visit(visitingUrl)
+            }
         }
         wg.Done() // done NON_RECOMMENDED_ONCE call [success]
     })
@@ -734,6 +970,18 @@ func dumpReviews(fname string) {
     }
 }
 
+func CheckLastReviewHash(spider *Spider){
+    for i, v := range reviews {
+        if contains(spider.LastReviewHashes, v.ReviewHash) {
+            fmt.Println("Review hash matches one already seen")
+            scrapStatus = "NO_REVIEWS_SINCE_LAST_MATCH"
+            reviews = reviews[:i]
+            last_review_hash = true
+            break
+        }
+    }
+}
+
 func WriteDataToFileAsJSON(data interface{}, file *os.File) (int, error) {
     //write data as buffer to json encoder
     buffer := new(bytes.Buffer)
@@ -827,6 +1075,16 @@ func applyHashKey(review *ReviewFomate) {
     review.ReviewHash = hex.EncodeToString(h.Sum(nil))
 }
 
+func contains(s []string, str string) bool {
+    for _, v := range s {
+        if v == str {
+            return true
+        }
+    }
+
+    return false
+}
+
 func hasText(review *ReviewFomate) bool {
     return review.Text != ""
 }
@@ -856,7 +1114,6 @@ func encodeFielsToB64(review *ReviewFomate) {
             review.OwnerReply[key].Author_name = base64.StdEncoding.EncodeToString([]byte(obj.Author_name))
         }
     }
-
 }
 
 func retryRequest(url string) bool {

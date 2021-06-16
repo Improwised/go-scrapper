@@ -356,7 +356,7 @@ func yelpSpiderRun(args, op, sval string) {
 
         if len(spider.LastReviewHashes) > 0 {
             wg.Add(1)
-            lastReviewRun(spider, &wg)
+            callLastReviewURL(spider, &wg)
             wg.Wait()
         }
            
@@ -588,7 +588,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
                     loop_start = 0
                     loop_end = 50
                     wg.Add(1)
-                    lastReviewHashes(spider, wg)
+                    callNormalReviewLastReviewURL(spider, wg)
                 } else {
                     for i := 0; i < reviewCount; i += 10 {
                         wg.Add(1) // add REVIEW call
@@ -621,7 +621,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
     profile.Visit(Profile_key)
 }
 
-func lastReviewHashes(spider *Spider, wg *sync.WaitGroup) {
+func callNormalReviewLastReviewURL(spider *Spider, wg *sync.WaitGroup) {
     // Prepare URL
     RevUrl := "https://www.yelp.com/biz/" + business_id + "/review_feed?rl=en&sort_by=date_desc"
     var reviewCollector = normalReview(spider, wg)
@@ -633,7 +633,7 @@ func lastReviewHashes(spider *Spider, wg *sync.WaitGroup) {
     wg.Done()
 }
 
-func lastReviewRun(spider *Spider, wg *sync.WaitGroup) {
+func callLastReviewURL(spider *Spider, wg *sync.WaitGroup) {
     if len(reviews) > 0 {
         wg.Done()
         CheckLastReviewHash(spider)
@@ -641,15 +641,15 @@ func lastReviewRun(spider *Spider, wg *sync.WaitGroup) {
             wg.Add(1)
             loop_start = loop_end
             loop_end += 50
-            lastReviewHashes(spider, wg)
+            callNormalReviewLastReviewURL(spider, wg)
             wg.Wait()
             wg.Add(1)
             non_loop_start = non_loop_end
             non_loop_end += 50
-            lastReviewHashesfornon(spider, wg)
+            callNonRecommandedLastReviewURL(spider, wg)
             wg.Wait()
             wg.Add(1)
-            lastReviewRun(spider, wg)
+            callLastReviewURL(spider, wg)
             wg.Wait()
         }
     } else {
@@ -657,7 +657,7 @@ func lastReviewRun(spider *Spider, wg *sync.WaitGroup) {
     }
 }
 
-func lastReviewHashesfornon(spider *Spider, wg *sync.WaitGroup) {
+func callNonRecommandedLastReviewURL(spider *Spider, wg *sync.WaitGroup) {
     // Prepare URL
     nonRecommandedCollector := nonRecommandedReviewUrlCallFollowup(spider, wg)
     for  non_loop_start < non_loop_end {
@@ -813,7 +813,7 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
             non_loop_start = 0
             non_loop_end = 50
             wg.Add(1)
-            lastReviewHashesfornon(spider, wg)
+            callNonRecommandedLastReviewURL(spider, wg)
         } else {
             for i := 0; i < nonReviewCount; i += 10 {
                 wg.Add(1) // add NON_RECOMMENDED_REV call

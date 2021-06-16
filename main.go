@@ -32,7 +32,7 @@ type Spider struct {
     ProfileKey       string   `json:"profile_key"`
     BusinessName     string   `json:"business_name"`
     LastReviewHashes []string `json:"last_review_hashes"`
-    businessID       int      `json:"business_id"`
+    BusinessID       int      `json:"business_id"`
     ClientID         int      `json:"client_id"`
     BatchID          int      `json:"batch_id"`
     TaskID           int      `json:"task_id"`
@@ -174,6 +174,7 @@ type Meta struct {
     Request_count      int       `json:"downloader/request_count"`
     Response_bytes     int       `json:"downloader/response_bytes"`
 }
+
 func main() {
     var cmd = &cobra.Command{
         Use:   "yelp",
@@ -320,7 +321,7 @@ func yelpSpiderRun(args, op, sval string) {
     spider := &Spider{filename: op}
     setPlace(args, spider)
     var wg sync.WaitGroup
-
+    start_time = time.Now().UTC().Format("2006-01-02 15:04:05")
 
     if spider.ProfileKey == "" {
         wg.Add(1)
@@ -349,7 +350,6 @@ func yelpSpiderRun(args, op, sval string) {
 
         // Profile URL Call
         wg.Add(1) // add PROFILE call
-        start_time = time.Now().UTC().Format("2006-01-02 15:04:05")
         callProfileURL(spider, &wg)
         fmt.Println("Waiting...")
         wg.Wait() // Wait for completing all calls
@@ -360,9 +360,9 @@ func yelpSpiderRun(args, op, sval string) {
             wg.Wait()
         }
            
-        finish_time = time.Now().UTC().Format("2006-01-02 15:04:05") 
-        dumpReviews(spider.filename, spider)
+        dumpReviews(spider.filename)
         fmt.Println("Profile Call done ! -- Count", len(reviews))
+        finish_time = time.Now().UTC().Format("2006-01-02 15:04:05") 
         item_scraped_count = len(reviews)
         if (len(reviews) > 0) {
             scrapStatus = "SUCCESS_SCRAPED"
@@ -953,7 +953,7 @@ func checkError(err error) {
     }
 }
 
-func dumpReviews(fname string, spider *Spider) {
+func dumpReviews(fname string) {
     file, err := os.OpenFile(fname, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0755)
     if err != nil {
         panic(err)
@@ -961,7 +961,6 @@ func dumpReviews(fname string, spider *Spider) {
     defer file.Close()
     for _, v := range reviews {
         _, err := WriteDataToFileAsJSON(v, file)
-
         if err != nil {
             panic(err)
         }

@@ -499,7 +499,7 @@ func matchService(spider *Spider, payload MatchServicePayload, wg *sync.WaitGrou
     reqBodyBytes := new(bytes.Buffer)
     json.NewEncoder(reqBodyBytes).Encode(payload)
 
-    err := godotenv.Load(".env")
+    err := godotenv.Load(".env.example")
     if err != nil {
         log.Fatalf("Error loading .env file")
     }

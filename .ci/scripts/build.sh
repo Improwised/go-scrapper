@@ -2,16 +2,16 @@
 #
 # Go scraper build with concourse caching enabled
 
-TASK_ROOT="$(pwd)"
+## For caching
+GOPATH=${PWD}/go-cache
+export GOPATH
 
-## Restore cache
-# cp -a ${TASK_ROOT}/go/pkg/mod/* /go/pkg/mod/ || true
-
+## Change dir
 cd repo
+
+## go go go
 go mod download
-
-## Save cache
-# cp -a /go/pkg/mod/* ${TASK_ROOT}/go/pkg/mod/ || true
-
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build main.go
+
+## for github-release-resource > name
 echo -n "go-scrapper $(cat .git/ref)" >name

@@ -5,9 +5,13 @@ platform: linux
 
 inputs:
   - name: repo
+
 outputs:
   - name: repo
     path: repo
+
+caches: [{ path: go-cache }]
+
 run:
   path: sh
   args: [repo/.ci/scripts/build.sh]

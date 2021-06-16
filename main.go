@@ -634,8 +634,8 @@ func lastReviewHashes(spider *Spider, wg *sync.WaitGroup) {
 }
 
 func lastReviewRun(spider *Spider, wg *sync.WaitGroup) {
-    fmt.Println(len(reviews))
     if len(reviews) > 0 {
+        wg.Done()
         CheckLastReviewHash(spider)
         for  last_review_hash != true {
             wg.Add(1)
@@ -648,10 +648,13 @@ func lastReviewRun(spider *Spider, wg *sync.WaitGroup) {
             non_loop_end += 50
             lastReviewHashesfornon(spider, wg)
             wg.Wait()
+            wg.Add(1)
             lastReviewRun(spider, wg)
+            wg.Wait()
         }
+    } else {
+        wg.Done()
     }
-    wg.Done()
 }
 
 func lastReviewHashesfornon(spider *Spider, wg *sync.WaitGroup) {

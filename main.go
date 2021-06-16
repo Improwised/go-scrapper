@@ -501,7 +501,7 @@ func matchService(spider *Spider, payload MatchServicePayload, wg *sync.WaitGrou
 
     err := godotenv.Load(".env.example")
     if err != nil {
-        log.Fatalf("Error loading .env file")
+        log.Fatal("Error loading .env.example file")
     }
 
     matchUrl := os.Getenv("MATCH_SERVICE_URL")

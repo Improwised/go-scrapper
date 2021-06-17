@@ -25,7 +25,7 @@ import (
 
     "github.com/gocolly/colly/v2"
     "github.com/spf13/cobra"
-    "github.com/joho/godotenv"
+    // "github.com/joho/godotenv"
 )
 
 // Define required Structs
@@ -499,13 +499,13 @@ func matchService(spider *Spider, payload MatchServicePayload, wg *sync.WaitGrou
     reqBodyBytes := new(bytes.Buffer)
     json.NewEncoder(reqBodyBytes).Encode(payload)
 
-    err := godotenv.Load(".env.example")
-    if err != nil {
-        log.Fatal("Error loading .env.example file")
-    }
+    // err := godotenv.Load(".env.example")
+    // if err != nil {
+    //     log.Fatal("Error loading .env.example file")
+    // }
 
-    matchUrl := os.Getenv("MATCH_SERVICE_URL")
-    match.PostRaw(matchUrl, reqBodyBytes.Bytes())      
+    // matchUrl := os.Getenv("MATCH_SERVICE_URL")
+    match.PostRaw("http://business-matching.asyncro/match", reqBodyBytes.Bytes())      
 }
 
 func callProfileURL(spider *Spider, wg *sync.WaitGroup) {

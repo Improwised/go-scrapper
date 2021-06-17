@@ -21,7 +21,6 @@ import (
     "strings"
     "sync"
     "time"
-    "reflect"
 
     "github.com/gocolly/colly/v2"
     "github.com/spf13/cobra"
@@ -418,11 +417,10 @@ func callSearchURL(spider *Spider, wg *sync.WaitGroup) {
 
         // create compare target
         for _, v := range e.ChildTexts("script[type=\"application/json\"]") {
-            if strings.Contains(v, "hovercardData") { 
+            if (strings.Contains(v, "hovercardData") && strings.Contains(v, "addressLines")) { 
                 re := regexp.MustCompile("\"hovercardData\":{(.*?)}}")
                 match := re.FindStringSubmatch(v)
                 data := "{" + match[0] + "}"
-
                 var parsed map[string]interface{}
                 err := json.Unmarshal([]byte(data), &parsed)
                 checkError(err)
@@ -479,10 +477,8 @@ func matchService(spider *Spider, payload MatchServicePayload, wg *sync.WaitGrou
         data := &MatchServiceResponse{}
         err := json.Unmarshal(r.Body, data)
         checkError(err)
-        if (reflect.TypeOf(data.Winner).Name() != "bool") {
-            result := data.Compare_targets[data.Winner]
-            spider.ProfileKey = "https://www.yelp.com" + result.Url
-        }
+        result := data.Compare_targets[data.Winner]
+        spider.ProfileKey = "https://www.yelp.com" + result.Url
         wg.Done()
     })
 
@@ -949,6 +945,10 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup) *co
 func checkError(err error) {
     if err != nil {
         if err == io.EOF {
+            return
+        }
+        if err.Error() == "json: cannot unmarshal bool into Go struct field MatchServiceResponse.winner of type int" {
+            scrapStatus = "NO_SEARCH_RESULTS"
             return
         }
         fmt.Println("Fatal error ", err.Error())

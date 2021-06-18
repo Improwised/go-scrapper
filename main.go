@@ -379,7 +379,9 @@ func yelpSpiderRun(args, op, sval string) {
         fmt.Println("Scrapping - ", scrapStatus)     
     } else {
         fmt.Println("Business have not profile_key.")
+        finish_time = time.Now().UTC().Format("2006-01-02 15:04:05") 
         scrapStatus = "NO_SEARCH_RESULTS"
+        dumpMetaData(spider)
         fmt.Println("Scrapping - ", scrapStatus)
     }
 }

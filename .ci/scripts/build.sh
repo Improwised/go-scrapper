@@ -1,4 +1,4 @@
-#!/bin/sh -x
+#!/bin/sh -cx
 #
 # Go scraper build with concourse caching enabled
 

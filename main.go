@@ -413,7 +413,7 @@ func callSearchURL(spider *Spider, wg *sync.WaitGroup) {
         // create target
         var target Target
         target.Name = spider.BusinessName
-        target.Text = spider.Address.Street + " " + spider.Address.City + "," + spider.Address.State + " " + spider.Address.Zip
+        target.Text = spider.Address.Street + ", " + spider.Address.City + ", " + spider.Address.State + " " + spider.Address.Zip
 
         // create compare target
         for _, v := range e.ChildTexts("script[type=\"application/json\"]") {
@@ -426,41 +426,57 @@ func callSearchURL(spider *Spider, wg *sync.WaitGroup) {
                 checkError(err)
 
                 for _, value := range parsed["hovercardData"].(map[string]interface{}) {
-                    var tar CompareTarget
+
+                    isAd := true
+                    var name string
+                    var stringAddress string
+                    var businessUrl string
+                    var numReviews float64 
+
                     for kk, vv := range value.(map[string]interface{}) {
                         if kk == "name" {
-                            name := vv.(string)
-                            tar.Name = name       
+                            name = vv.(string)
                         }
                         if kk == "addressLines" {
                             addressLines := vv.([]interface {})
-                            stringAddress := fmt.Sprintf("%v", addressLines)
+                            stringAddress = fmt.Sprintf("%v", addressLines)
                             stringAddress = stringAddress[1 : strings.Index(stringAddress, "]")]
-                            tar.Text = stringAddress
                         }
                         if kk == "businessUrl" {
-                            businessUrl := vv.(string)
-                            tar.Url = businessUrl 
+                            businessUrl = vv.(string) 
                         }
                         if kk == "numReviews" {
-                            numReviews := vv.(float64)
-                            tar.Review_count = numReviews 
+                            numReviews = vv.(float64)
+                             
+                        }
+                        if kk == "isAd" {
+                            isAd = vv.(bool)
                         }
                     }
-                    compare_targets = append(compare_targets, tar)
+
+                    if isAd == false {
+                        var tar CompareTarget
+                        tar.Name = name
+                        tar.Text = stringAddress
+                        tar.Url = businessUrl
+                        tar.Review_count = numReviews
+                        compare_targets = append(compare_targets, tar)
+                    }
                 }
             }
         }
-
-        // create payload for match sevice
-        payload = MatchServicePayload{
-            Client_id:"unknown",
-            Target:target,
-            Compare_targets:compare_targets,
-            Winner:false,
+        if len(compare_targets) > 0 {
+            // create payload for match sevice
+            payload = MatchServicePayload{
+                Client_id:"unknown",
+                Target:target,
+                Compare_targets:compare_targets,
+                Winner:false,
+            }
+            wg.Add(1)
+            matchService(spider, payload, wg)
         }
-
-        matchService(spider, payload, wg)
+        wg.Done()
     })
 
     address := spider.Address.Street + " " + spider.Address.State + " " + spider.Address.City + " " + spider.Address.Zip

@@ -447,7 +447,6 @@ func callSearchURL(spider *Spider, wg *sync.WaitGroup) {
                         }
                         if kk == "numReviews" {
                             numReviews = vv.(float64)
-                             
                         }
                         if kk == "isAd" {
                             isAd = vv.(bool)

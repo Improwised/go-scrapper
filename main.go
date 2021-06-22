@@ -176,6 +176,7 @@ type Meta struct {
 }
 
 func main() {
+    log.Println("warning:Command executing")
     var cmd = &cobra.Command{
         Use:   "yelp",
         Short: "Run spider yelp",
@@ -428,7 +429,7 @@ func callSearchURL(spider *Spider, wg *sync.WaitGroup) {
                 var parsed map[string]interface{}
                 err := json.Unmarshal([]byte(data), &parsed)
                 checkError(err)
-
+                log.Println("warning:In callProfileURL")
                 for _, value := range parsed["hovercardData"].(map[string]interface{}) {
 
                     isAd := true

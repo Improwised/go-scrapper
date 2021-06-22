@@ -497,7 +497,6 @@ func matchService(spider *Spider, payload MatchServicePayload, wg *sync.WaitGrou
         data := &MatchServiceResponse{}
         err := json.Unmarshal(r.Body, data)
         checkError(err)
-        log.Println("warning:match service response", data)
         result := data.Compare_targets[data.Winner]
         spider.ProfileKey = "https://www.yelp.com" + result.Url
         wg.Done()
@@ -513,7 +512,6 @@ func matchService(spider *Spider, payload MatchServicePayload, wg *sync.WaitGrou
         fmt.Println("Request - ", r.URL.String())
         r.Headers.Set("Content-Type", "application/json;charset=UTF-8")
     })
-    log.Println("warning:match service payload", payload)
 
     reqBodyBytes := new(bytes.Buffer)
     json.NewEncoder(reqBodyBytes).Encode(payload)

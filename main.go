@@ -176,6 +176,7 @@ type Meta struct {
 }
 
 func main() {
+    log.Println("warning:Command executing")
     var cmd = &cobra.Command{
         Use:   "yelp",
         Short: "Run spider yelp",
@@ -428,7 +429,7 @@ func callSearchURL(spider *Spider, wg *sync.WaitGroup) {
                 var parsed map[string]interface{}
                 err := json.Unmarshal([]byte(data), &parsed)
                 checkError(err)
-
+                log.Println("warning:In callProfileURL")
                 for _, value := range parsed["hovercardData"].(map[string]interface{}) {
 
                     isAd := true
@@ -496,7 +497,6 @@ func matchService(spider *Spider, payload MatchServicePayload, wg *sync.WaitGrou
         data := &MatchServiceResponse{}
         err := json.Unmarshal(r.Body, data)
         checkError(err)
-        log.Println("warning:match service response", data)
         result := data.Compare_targets[data.Winner]
         spider.ProfileKey = "https://www.yelp.com" + result.Url
         wg.Done()
@@ -512,7 +512,6 @@ func matchService(spider *Spider, payload MatchServicePayload, wg *sync.WaitGrou
         fmt.Println("Request - ", r.URL.String())
         r.Headers.Set("Content-Type", "application/json;charset=UTF-8")
     })
-    log.Println("warning:match service payload", payload)
 
     reqBodyBytes := new(bytes.Buffer)
     json.NewEncoder(reqBodyBytes).Encode(payload)

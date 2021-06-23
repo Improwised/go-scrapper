@@ -310,6 +310,8 @@ var (
     non_loop_start       int
     non_loop_end         int
     nonRecommandedUrl    string
+    non_review_count     int
+    normal_review_count  int
     mu                   sync.Mutex
 )
 
@@ -601,6 +603,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
                 }
                 fmt.Println("Normal Reviews:", reviewCount)
                 minimal_review_count = reviewCount
+                normal_review_count = reviewCount
                 // Call all pages.
                 var reviewCollector = normalReview(spider, wg)
                 
@@ -657,21 +660,27 @@ func callLastReviewURL(spider *Spider, wg *sync.WaitGroup) {
     if len(reviews) > 0 {
         wg.Done()
         CheckLastReviewHash(spider)
-        for  last_review_hash != true {
-            wg.Add(1)
-            loop_start = loop_end
-            loop_end += 50
-            callNormalReviewLastReviewURL(spider, wg)
-            wg.Wait()
-            wg.Add(1)
-            non_loop_start = non_loop_end
-            non_loop_end += 50
-            callNonRecommandedLastReviewURL(spider, wg)
-            wg.Wait()
+        for  (last_review_hash != true && (loop_end < normal_review_count || non_loop_end < non_review_count)) {
+            if loop_end < normal_review_count {
+                loop_start = loop_end
+                loop_end += 50
+                wg.Add(1)
+                callNormalReviewLastReviewURL(spider, wg)
+                wg.Wait()
+            }
+
+            if non_loop_end < non_review_count {
+                non_loop_start = non_loop_end
+                non_loop_end += 50
+                wg.Add(1)
+                callNonRecommandedLastReviewURL(spider, wg)
+                wg.Wait()
+            }
+
             wg.Add(1)
             callLastReviewURL(spider, wg)
-            wg.Wait()
-        }
+            wg.Wait() 
+        }        
     } else {
         wg.Done()
     }
@@ -803,8 +812,6 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
     linkCall.OnHTML(`html`, func(e *colly.HTMLElement) {
         fmt.Println("Response - ", e.Request.URL.String())
 
-        nonReviewCount := 0
-
         for _, v := range e.ChildTexts("h3") {
             if strings.Contains(v, "recommended") {
                 re := regexp.MustCompile("(\\d+)")
@@ -814,7 +821,7 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
                     if err != nil {
                         panic(err)
                     }
-                    nonReviewCount = count
+                    non_review_count = count
                     if count == 0 {
                         wg.Done() // done NON_RECOMMENDED_ONCE call [success - without reviews]
                         fmt.Println("No review")
@@ -825,8 +832,8 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
             }
         }
 
-        fmt.Println("Non recommanded Reviews", nonReviewCount)
-        minimal_review_count = nonReviewCount
+        fmt.Println("Non recommanded Reviews", non_review_count)
+        minimal_review_count = non_review_count
         nonRecommandedUrl = e.Request.URL.String()
         nonRecommandedCollector := nonRecommandedReviewUrlCallFollowup(spider, wg)
         if (len(spider.LastReviewHashes) > 0) {
@@ -835,7 +842,7 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
             wg.Add(1)
             callNonRecommandedLastReviewURL(spider, wg)
         } else {
-            for i := 0; i < nonReviewCount; i += 10 {
+            for i := 0; i < non_review_count; i += 10 {
                 wg.Add(1) // add NON_RECOMMENDED_REV call
                 visitingUrl := e.Request.URL.String() + "?not_recommended_start=" + strconv.Itoa(i)
                 nonRecommandedCollector.Visit(visitingUrl)

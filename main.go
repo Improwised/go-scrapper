@@ -32,6 +32,7 @@ type Spider struct {
     ProfileKey       string   `json:"profile_key"`
     BusinessName     string   `json:"business_name"`
     LastReviewHashes []string `json:"last_review_hashes"`
+    FirstPageOnly    int      `json:"first_page_only"`
     BusinessID       int      `json:"business_id"`
     ClientID         int      `json:"client_id"`
     BatchID          int      `json:"batch_id"`
@@ -176,7 +177,6 @@ type Meta struct {
 }
 
 func main() {
-    log.Println("warning:Command executing")
     var cmd = &cobra.Command{
         Use:   "yelp",
         Short: "Run spider yelp",
@@ -194,8 +194,6 @@ func main() {
     cmd.PersistentFlags().StringP("additional-args", "a", "", "NAME=VALUE as additional Arguments.")
     cmd.PersistentFlags().StringP("output", "o", "", "output filename.")
     cmd.PersistentFlags().StringP("setvar", "s", "", "NAME=VALUE as setting variable .")
-
-    log.Println("warning:Command executing")
 
     // Execute command and handle Error
     if err := cmd.Execute(); err != nil {
@@ -427,48 +425,49 @@ func callSearchURL(spider *Spider, wg *sync.WaitGroup) {
             if (strings.Contains(v, "hovercardData") && strings.Contains(v, "addressLines")) { 
                 re := regexp.MustCompile("\"hovercardData\":{(.*?)}}")
                 match := re.FindStringSubmatch(v)
-                data := "{" + match[0] + "}"
-                var parsed map[string]interface{}
-                err := json.Unmarshal([]byte(data), &parsed)
-                checkError(err)
-                log.Println("warning:In callProfileURL")
-                for _, value := range parsed["hovercardData"].(map[string]interface{}) {
+                if len(match) >= 2 {
+                    data := "{" + match[0] + "}"
+                    var parsed map[string]interface{}
+                    err := json.Unmarshal([]byte(data), &parsed)
+                    checkError(err)
+                    for _, value := range parsed["hovercardData"].(map[string]interface{}) {
 
-                    isAd := true
-                    var name string
-                    var stringAddress string
-                    var businessUrl string
-                    var numReviews float64 
+                        isAd := true
+                        var name string
+                        var stringAddress string
+                        var businessUrl string
+                        var numReviews float64 
 
-                    for kk, vv := range value.(map[string]interface{}) {
-                        if kk == "name" {
-                            name = vv.(string)
+                        for kk, vv := range value.(map[string]interface{}) {
+                            if kk == "name" {
+                                name = vv.(string)
+                            }
+                            if kk == "addressLines" {
+                                addressLines := vv.([]interface {})
+                                stringAddress = fmt.Sprintf("%v", addressLines)
+                                stringAddress = stringAddress[1 : strings.Index(stringAddress, "]")]
+                            }
+                            if kk == "businessUrl" {
+                                businessUrl = vv.(string) 
+                            }
+                            if kk == "numReviews" {
+                                numReviews = vv.(float64)
+                            }
+                            if kk == "isAd" {
+                                isAd = vv.(bool)
+                            }
                         }
-                        if kk == "addressLines" {
-                            addressLines := vv.([]interface {})
-                            stringAddress = fmt.Sprintf("%v", addressLines)
-                            stringAddress = stringAddress[1 : strings.Index(stringAddress, "]")]
-                        }
-                        if kk == "businessUrl" {
-                            businessUrl = vv.(string) 
-                        }
-                        if kk == "numReviews" {
-                            numReviews = vv.(float64)
-                        }
-                        if kk == "isAd" {
-                            isAd = vv.(bool)
-                        }
-                    }
 
-                    if isAd == false {
-                        var tar CompareTarget
-                        tar.Name = name
-                        tar.Text = stringAddress
-                        tar.Url = businessUrl
-                        tar.Review_count = numReviews
-                        compare_targets = append(compare_targets, tar)
-                    }
-                }
+                        if isAd == false {
+                            var tar CompareTarget
+                            tar.Name = name
+                            tar.Text = stringAddress
+                            tar.Url = businessUrl
+                            tar.Review_count = numReviews
+                            compare_targets = append(compare_targets, tar)
+                        }
+                    }   
+                }     
             }
         }
         if len(compare_targets) > 0 {
@@ -612,6 +611,9 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
                     loop_end = 50
                     wg.Add(1)
                     callNormalReviewLastReviewURL(spider, wg)
+                } else if (spider.FirstPageOnly == 1) {
+                    wg.Add(1) // add REVIEW call
+                    reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(0))
                 } else {
                     for i := 0; i < reviewCount; i += 10 {
                         wg.Add(1) // add REVIEW call
@@ -841,6 +843,10 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
             non_loop_end = 50
             wg.Add(1)
             callNonRecommandedLastReviewURL(spider, wg)
+        } else if (spider.FirstPageOnly == 1) {
+            wg.Add(1) // add NON_RECOMMENDED_REV call
+            visitingUrl := e.Request.URL.String() + "?not_recommended_start=" + strconv.Itoa(0)
+            nonRecommandedCollector.Visit(visitingUrl)
         } else {
             for i := 0; i < non_review_count; i += 10 {
                 wg.Add(1) // add NON_RECOMMENDED_REV call

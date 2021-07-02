@@ -580,18 +580,17 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 			// ===================================
 			// Collecting Histogram
 			// ===================================
-
-			for _, v := range e.ChildTexts("script[type=\"application/ld+json\"]") {
-				if strings.Contains(v, "aggregateRating") {
-					data := HistogramFormat{}
-					err := json.Unmarshal([]byte(v), &data)
-					checkError(err)
-					histogram.Primary = Primary{
-						Score:         data.AggregateRating.RatingValue,
-						Total_reviews: data.AggregateRating.ReviewCount,
-					}
-					fmt.Println("Histogram:", histogram)
+			if len(e.ChildTexts("script:contains(aggregateRating)")) > 0 {
+				aggregateRating_string := e.ChildTexts("script:contains(aggregateRating)")[0]
+				data := HistogramFormat{}
+				err := json.Unmarshal([]byte(aggregateRating_string), &data)
+				checkError(err)
+				histogram.Primary = Primary{
+					Score:         data.AggregateRating.RatingValue,
+					Total_reviews: data.AggregateRating.ReviewCount,
 				}
+				fmt.Println("Histogram:", histogram)
+
 			}
 
 			// ===================================

@@ -609,15 +609,15 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 				if len(spider.LastReviewHashes) > 0 {
 					loop_start = 0
 					loop_end = 50
-					wg.Add(1)
+					// wg.Add(1)
 					callNormalReviewLastReviewURL(spider, wg)
 				} else if spider.FirstPageOnly == 1 {
-					wg.Add(1) // add REVIEW call
+					// wg.Add(1) // add REVIEW call
 					reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(0))
 					reviewCollector.Wait()
 				} else {
 					for i := 0; i < reviewCount; i += 10 {
-						wg.Add(1) // add REVIEW call
+						// wg.Add(1) // add REVIEW call
 						reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(i))
 					}
 					reviewCollector.Wait()
@@ -658,7 +658,7 @@ func callNormalReviewLastReviewURL(spider *Spider, wg *sync.WaitGroup) {
 		loop_start += 10
 	}
 	reviewCollector.Wait()
-	wg.Done()
+	// wg.Done()
 }
 
 func callLastReviewURL(spider *Spider, wg *sync.WaitGroup) {

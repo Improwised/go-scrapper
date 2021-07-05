@@ -581,16 +581,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 			// Collecting Histogram
 			// ===================================
 			if len(e.ChildTexts("script:contains(aggregateRating)")) > 0 {
-				aggregateRating_string := e.ChildTexts("script:contains(aggregateRating)")[0]
-				data := HistogramFormat{}
-				err := json.Unmarshal([]byte(aggregateRating_string), &data)
-				checkError(err)
-				histogram.Primary = Primary{
-					Score:         data.AggregateRating.RatingValue,
-					Total_reviews: data.AggregateRating.ReviewCount,
-				}
-				fmt.Println("Histogram:", histogram)
-
+				get_histogram(e.ChildTexts("script:contains(aggregateRating)")[0])
 			}
 
 			// ===================================
@@ -623,11 +614,13 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 				} else if spider.FirstPageOnly == 1 {
 					wg.Add(1) // add REVIEW call
 					reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(0))
+					reviewCollector.Wait()
 				} else {
 					for i := 0; i < reviewCount; i += 10 {
 						wg.Add(1) // add REVIEW call
 						reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(i))
 					}
+					reviewCollector.Wait()
 				}
 			}
 
@@ -660,10 +653,11 @@ func callNormalReviewLastReviewURL(spider *Spider, wg *sync.WaitGroup) {
 	RevUrl := "https://www.yelp.com/biz/" + business_id + "/review_feed?rl=en&sort_by=date_desc"
 	var reviewCollector = normalReview(spider, wg)
 	for loop_start < loop_end {
-		wg.Add(1) // add REVIEW call
+		// wg.Add(1) // add REVIEW call
 		reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(loop_start))
 		loop_start += 10
 	}
+	reviewCollector.Wait()
 	wg.Done()
 }
 
@@ -718,7 +712,7 @@ func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 			log.Println("error:", e, r.Request.URL, string(r.Body))
 			ilink := r.Request.URL.String()
 			fmt.Println("URL Error:", ilink)
-			wg.Done() // done REVIEW call [failed]
+			// wg.Done() // done REVIEW call [failed]
 		}
 	})
 	linkCall.OnResponse(func(r *colly.Response) {
@@ -793,7 +787,7 @@ func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 			rev_counter += 1
 		}
 		fmt.Println("Count", (rev_counter + non_counter))
-		wg.Done() // done REVIEW call [success]
+		// wg.Done() // done REVIEW call [success]
 	})
 	return linkCall
 }
@@ -1179,4 +1173,15 @@ func retryRequest(url string) bool {
 		mu.Unlock()
 		return true
 	}
+}
+
+func get_histogram(aggregateRating_string string) {
+	data := HistogramFormat{}
+	err := json.Unmarshal([]byte(aggregateRating_string), &data)
+	checkError(err)
+	histogram.Primary = Primary{
+		Score:         data.AggregateRating.RatingValue,
+		Total_reviews: data.AggregateRating.ReviewCount,
+	}
+	fmt.Println("Histogram:", histogram)
 }

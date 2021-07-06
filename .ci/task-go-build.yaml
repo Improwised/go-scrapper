@@ -13,5 +13,5 @@ outputs:
 caches: [{ path: go-cache }]
 
 run:
-  path: sh
-  args: [repo/.ci/scripts/build.sh]
+  path: bash
+  args: ["-cxe","repo/.ci/scripts/build.sh"]

@@ -1,15 +1,15 @@
-#!/bin/sh -cx
+#!/bin/bash -ex
 #
 # Go scraper build with concourse caching enabled
+TASK_ROOT=$(pwd)
 
 ## For caching
-GOPATH=${PWD}/go-cache
-export GOPATH
+export GOPATH=${TASK_ROOT}/go-cache
+export PATH=${TASK_ROOT}/go-cache/bin:$PATH
 
-## Change dir
 cd repo
 
-## go go go
+## go mod and build
 go mod download
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build main.go
 

@@ -3,16 +3,16 @@ package main
 import (
 	"bytes"
 	"crypto/md5"
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go-yelp-with-proxy/collyfunc"
+	"go-yelp-with-proxy/utils"
 	"html"
 	"io"
 	"log"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -219,72 +219,6 @@ func setPlace(args string, sp *Spider) {
 	}
 }
 
-func getFromProxy(proxy, key string) string {
-	proxyDetail := strings.Split(proxy, "@")
-	accessKey, proxyUrl := proxyDetail[0], proxyDetail[1]
-
-	ans := ""
-	switch key {
-	case "url":
-		ans = "http://" + proxyUrl
-		break
-	case "key":
-		ans = accessKey
-		break
-	}
-	return ans
-}
-
-func getColly(proxy string) *colly.Collector {
-	c := colly.NewCollector(
-		colly.AllowedDomains("yelp.com", "www.yelp.com"),
-		colly.Async(true),
-	)
-	proxyUrl := getFromProxy(proxy, "url")
-	proxyURL, err := url.Parse(proxyUrl)
-	checkError(err)
-
-	// create transport for set proxy and certificate
-	transport := &http.Transport{
-		Proxy: http.ProxyURL(proxyURL),
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-		},
-	}
-
-	// pass transport to collector
-	c.WithTransport(transport)
-
-	c.SetRequestTimeout(60 * time.Second)
-
-	c.OnRequest(func(r *colly.Request) {
-		requestCount += 1
-		fmt.Println("Visit - ", r.URL)
-		authKey := getFromProxy(proxy, "key")
-		basic := "Basic " + base64.StdEncoding.EncodeToString([]byte(authKey))
-		r.Headers.Set("Proxy-Authorization", basic)
-		r.Headers.Set("X-Crawlera-Profile", "desktop")
-	})
-
-	c.OnError(func(r *colly.Response, e error) {
-		responseBytes += len(r.Body)
-		fmt.Println("=========>", r.StatusCode)
-	})
-
-	c.OnResponse(func(r *colly.Response) {
-		responseBytes += len(r.Body)
-	})
-
-	c.Limit(&colly.LimitRule{
-		DomainGlob:  "*",
-		Parallelism: 5,
-		Delay:       2 * time.Second,
-		RandomDelay: 1 * time.Second,
-	})
-
-	return c
-}
-
 var (
 	reviews              []ReviewFomate
 	histogram            Histogram
@@ -383,7 +317,7 @@ func yelpSpiderRun(args, op, sval string) {
 }
 
 func callSearchURL(spider *Spider) {
-	search := getColly(spider.Persona.Proxy)
+	search := collyfunc.GetColly(spider.Persona.Proxy, scrapStatus, requestCount, responseBytes)
 	search.OnError(func(r *colly.Response, e error) {
 		fmt.Println("Status ", r.StatusCode)
 		if retryRequest(r.Request.URL.String()) {
@@ -398,6 +332,7 @@ func callSearchURL(spider *Spider) {
 			}
 			if r.StatusCode == 0 {
 				if strings.Contains(e.Error(), "Client.Timeout") {
+					log.Println("search timeout")
 					scrapStatus = "TIMEOUT"
 				}
 			}
@@ -422,7 +357,7 @@ func callSearchURL(spider *Spider) {
 					data := "{" + match[0] + "}"
 					var parsed map[string]interface{}
 					err := json.Unmarshal([]byte(data), &parsed)
-					checkError(err)
+					utils.CheckError(err, scrapStatus)
 					for _, value := range parsed["hovercardData"].(map[string]interface{}) {
 
 						isAd := true
@@ -487,11 +422,11 @@ func callSearchURL(spider *Spider) {
 
 func matchService(spider *Spider, payload MatchServicePayload) {
 	match := colly.NewCollector()
-	// match := getColly(spider.Persona.Proxy)
+	// match := collyfunc.GetColly(spider.Persona.Proxy, scrapStatus, requestCount, responseBytes)
 	match.OnResponse(func(r *colly.Response) {
 		data := &MatchServiceResponse{}
 		err := json.Unmarshal(r.Body, data)
-		checkError(err)
+		utils.CheckError(err, scrapStatus)
 		result := data.Compare_targets[data.Winner]
 		spider.ProfileKey = "https://www.yelp.com" + result.Url
 
@@ -518,12 +453,13 @@ func matchService(spider *Spider, payload MatchServicePayload) {
 
 	// matchUrl := os.Getenv("MATCH_SERVICE_URL")
 
-	match.PostRaw("http://business-matching.asyncro/match", reqBodyBytes.Bytes())
+	// match.PostRaw("http://business-matching.asyncro/match", reqBodyBytes.Bytes())
+	match.PostRaw("http://127.0.0.1:9999/match", reqBodyBytes.Bytes())
 	match.Wait()
 }
 
 func callProfileURL(spider *Spider) {
-	profile := getColly(spider.Persona.Proxy)
+	profile := collyfunc.GetColly(spider.Persona.Proxy, scrapStatus, requestCount, responseBytes)
 	profile.OnError(func(r *colly.Response, e error) {
 		fmt.Println("Status ", r.StatusCode)
 		if retryRequest(r.Request.URL.String()) {
@@ -537,6 +473,7 @@ func callProfileURL(spider *Spider) {
 				scrapStatus = "SCRAPE_FAILED"
 			}
 			if r.StatusCode == 0 {
+				log.Println("timeout in profile call", Profile_key)
 				scrapStatus = "TIMEOUT"
 			}
 			log.Println("error:", e, r.Request.URL, string(r.Body), r.StatusCode, retryCount)
@@ -627,7 +564,8 @@ func callProfileURL(spider *Spider) {
 
 			nonRevURL := e.Request.URL.ResolveReference(nonUrl)
 
-			// Fist visit to non recommanded URL
+			// First visit to non recommanded URL
+			log.Println("calling not recommeded reviews.", Profile_key)
 			nonRecommandedReviewUrlCall(spider, nonRevURL.String())
 
 		}
@@ -686,7 +624,7 @@ func callNonRecommandedLastReviewURL(spider *Spider) {
 }
 
 func normalReview(spider *Spider) *colly.Collector {
-	linkCall := getColly(spider.Persona.Proxy)
+	linkCall := collyfunc.GetColly(spider.Persona.Proxy, scrapStatus, requestCount, responseBytes)
 	linkCall.OnError(func(r *colly.Response, e error) {
 		if retryRequest(r.Request.URL.String()) {
 			fmt.Println("Retry Request- ", r.Request.URL)
@@ -700,10 +638,10 @@ func normalReview(spider *Spider) *colly.Collector {
 	linkCall.OnResponse(func(r *colly.Response) {
 		data := &Reviews{}
 		err := json.Unmarshal(r.Body, data)
-		checkError(err)
+		utils.CheckError(err, scrapStatus)
 		for _, obj := range data.Reviews {
 			posted_at, err := time.Parse("1/2/2006", obj.Source_date)
-			checkError(err)
+			utils.CheckError(err, scrapStatus)
 			var photo []string
 			for _, photoObj := range obj.Photos {
 				photo = append(photo, photoObj.Src)
@@ -732,7 +670,7 @@ func normalReview(spider *Spider) *colly.Collector {
 
 			for _, preObj := range obj.PreviousReview {
 				posted_at, err := time.Parse("1/2/2006", preObj.Source_date)
-				checkError(err)
+				utils.CheckError(err, scrapStatus)
 
 				var photo []string
 				for _, photoObj := range preObj.Photos {
@@ -770,12 +708,11 @@ func normalReview(spider *Spider) *colly.Collector {
 		}
 		fmt.Println("Count", (rev_counter + non_counter))
 	})
-	linkCall.Wait()
 	return linkCall
 }
 
 func nonRecommandedReviewUrlCall(spider *Spider, link string) {
-	linkCall := getColly(spider.Persona.Proxy)
+	linkCall := collyfunc.GetColly(spider.Persona.Proxy, scrapStatus, requestCount, responseBytes)
 	linkCall.OnError(func(r *colly.Response, e error) {
 		if retryRequest(r.Request.URL.String()) {
 			fmt.Println("Retry Request- ", r.Request.URL)
@@ -789,6 +726,7 @@ func nonRecommandedReviewUrlCall(spider *Spider, link string) {
 					scrapStatus = "SCRAPE_FAILED"
 				}
 				if r.StatusCode == 0 {
+					log.Println("timeout in non recommandedreview", link)
 					scrapStatus = "TIMEOUT"
 				}
 			}
@@ -843,7 +781,7 @@ func nonRecommandedReviewUrlCall(spider *Spider, link string) {
 }
 
 func nonRecommandedReviewUrlCallFollowup(spider *Spider) *colly.Collector {
-	linkCall := getColly(spider.Persona.Proxy)
+	linkCall := collyfunc.GetColly(spider.Persona.Proxy, scrapStatus, requestCount, responseBytes)
 	linkCall.OnError(func(r *colly.Response, e error) {
 		if retryRequest(r.Request.URL.String()) {
 			fmt.Println("Retry Request- ", r.Request.URL)
@@ -882,7 +820,7 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider) *colly.Collector {
 		}
 
 		posted_at, err := time.Parse("1/2/2006", source_date)
-		checkError(err)
+		utils.CheckError(err, scrapStatus)
 
 		review := ReviewFomate{
 			Review_id:       review_id,
@@ -916,7 +854,7 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider) *colly.Collector {
 			date := strings.Fields(elem.ChildText(".rating-qualifier"))
 			source_date := date[0]
 			posted_at, err := time.Parse("1/2/2006", source_date)
-			checkError(err)
+			utils.CheckError(err, scrapStatus)
 
 			rat := re.FindStringSubmatch(elem.ChildAttr(".biz-rating .i-stars", "class"))[1]
 			rating, _ := strconv.Atoi(rat)
@@ -951,22 +889,7 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider) *colly.Collector {
 		// reviews = append(reviews, review)
 		non_counter += 1
 	})
-	linkCall.Wait()
 	return linkCall
-}
-
-func checkError(err error) {
-	if err != nil {
-		if err == io.EOF {
-			return
-		}
-		if err.Error() == "json: cannot unmarshal bool into Go struct field MatchServiceResponse.winner of type int" {
-			scrapStatus = "NO_SEARCH_RESULTS"
-			return
-		}
-		fmt.Println("Fatal error ", err.Error())
-		os.Exit(1)
-	}
 }
 
 func dumpReviews(fname string) {
@@ -976,7 +899,7 @@ func dumpReviews(fname string) {
 	}
 	defer file.Close()
 	for _, v := range reviews {
-		_, err := WriteDataToFileAsJSON(v, file)
+		_, err := utils.WriteDataToFileAsJSON(v, file)
 		if err != nil {
 			panic(err)
 		}
@@ -993,23 +916,6 @@ func CheckLastReviewHash(spider *Spider) {
 			break
 		}
 	}
-}
-
-func WriteDataToFileAsJSON(data interface{}, file *os.File) (int, error) {
-	//write data as buffer to json encoder
-	buffer := new(bytes.Buffer)
-	encoder := json.NewEncoder(buffer)
-	encoder.SetEscapeHTML(false)
-
-	err := encoder.Encode(data)
-	if err != nil {
-		return 0, err
-	}
-	n, err := file.Write(buffer.Bytes())
-	if err != nil {
-		return 0, err
-	}
-	return n, nil
 }
 
 func dumpMetaData(spider *Spider) {
@@ -1031,7 +937,7 @@ func dumpMetaData(spider *Spider) {
 		panic(err)
 	}
 	defer file.Close()
-	WriteDataToFileAsJSON(data, file)
+	utils.WriteDataToFileAsJSON(data, file)
 }
 
 func safeReviewAdd(review ReviewFomate) {
@@ -1154,7 +1060,7 @@ func retryRequest(url string) bool {
 func get_histogram(aggregateRating_string string) {
 	data := HistogramFormat{}
 	err := json.Unmarshal([]byte(aggregateRating_string), &data)
-	checkError(err)
+	utils.CheckError(err, scrapStatus)
 	histogram.Primary = Primary{
 		Score:         data.AggregateRating.RatingValue,
 		Total_reviews: data.AggregateRating.ReviewCount,

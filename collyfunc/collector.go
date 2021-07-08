@@ -1,0 +1,81 @@
+package collyfunc
+
+import (
+	"crypto/tls"
+	"encoding/base64"
+	"fmt"
+	"go-yelp-with-proxy/utils"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/gocolly/colly/v2"
+)
+
+func getFromProxy(proxy, key string) string {
+	proxyDetail := strings.Split(proxy, "@")
+	accessKey, proxyUrl := proxyDetail[0], proxyDetail[1]
+
+	ans := ""
+	switch key {
+	case "url":
+		ans = "http://" + proxyUrl
+		break
+	case "key":
+		ans = accessKey
+		break
+	}
+	return ans
+}
+func GetColly(proxy string, scrapStatus string, requestCount int, responseBytes int) *colly.Collector {
+	c := colly.NewCollector(
+		colly.AllowedDomains("yelp.com", "www.yelp.com"),
+		colly.Async(true),
+	)
+	proxyUrl := getFromProxy(proxy, "url")
+	proxyURL, err := url.Parse(proxyUrl)
+	utils.CheckError(err, scrapStatus)
+
+	// create transport for set proxy and certificate
+	transport := &http.Transport{
+		Proxy: http.ProxyURL(proxyURL),
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	}
+
+	// pass transport to collector
+	c.WithTransport(transport)
+
+	c.SetRequestTimeout(30 * time.Second)
+
+	c.OnRequest(func(r *colly.Request) {
+		requestCount += 1
+		fmt.Println("Visit - ", r.URL)
+		authKey := getFromProxy(proxy, "key")
+		basic := "Basic " + base64.StdEncoding.EncodeToString([]byte(authKey))
+		r.Headers.Set("Proxy-Authorization", basic)
+		r.Headers.Set("X-Crawlera-Profile", "desktop")
+		r.Headers.Set("upgrade-insecure-requests", "1")
+		r.Headers.Set("Connection", "keep-alive")
+	})
+
+	c.OnError(func(r *colly.Response, e error) {
+		responseBytes += len(r.Body)
+		fmt.Println("=========>", r.StatusCode)
+	})
+
+	c.OnResponse(func(r *colly.Response) {
+		responseBytes += len(r.Body)
+	})
+
+	c.Limit(&colly.LimitRule{
+		DomainGlob:  "*",
+		Parallelism: 5,
+		Delay:       10 * time.Second,
+		// RandomDelay: 1 * time.Second,
+	})
+
+	return c
+}

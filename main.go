@@ -194,11 +194,11 @@ func main() {
 	cmd.PersistentFlags().StringP("additional-args", "a", "", "NAME=VALUE as additional Arguments.")
 	cmd.PersistentFlags().StringP("output", "o", "", "output filename.")
 	cmd.PersistentFlags().StringP("setvar", "s", "", "NAME=VALUE as setting variable .")
+
 	// Execute command and handle Error
 	if err := cmd.Execute(); err != nil {
 		panic(err)
 	}
-
 }
 
 func setPlace(args string, sp *Spider) {

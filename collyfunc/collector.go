@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"go-yelp-with-proxy/utils"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,6 +13,28 @@ import (
 
 	"github.com/gocolly/colly/v2"
 )
+
+var YELP_USER_AGENT_STRING = []string{
+	"AdsBot-Google",
+	"Applebot",
+	"BingPreview",
+	"DeepCrawl",
+	"Googlebot",
+	"Googlebot-Image",
+	"Googlebot-Mobile",
+	"Mediapartners-Google",
+	"STC-bot",
+	"ScoutJet",
+	"SearchmetricsBot",
+	"SeznamBot",
+	"TelegramBot",
+	"Twitterbot",
+	"Yahoo! Slurp",
+	"Yandex",
+	"archive.org_bot",
+	"ia_archiver",
+	"msnbot",
+}
 
 func getFromProxy(proxy, key string) string {
 	proxyDetail := strings.Split(proxy, "@")
@@ -59,6 +82,8 @@ func GetColly(proxy string, scrapStatus string, requestCount int, responseBytes 
 		r.Headers.Set("X-Crawlera-Profile", "desktop")
 		r.Headers.Set("upgrade-insecure-requests", "1")
 		r.Headers.Set("Connection", "keep-alive")
+		r.Headers.Set("User-Agent", YELP_USER_AGENT_STRING[rand.Intn(len(YELP_USER_AGENT_STRING))])
+		r.Headers.Set("authority", "www.yelp.com")
 	})
 
 	c.OnError(func(r *colly.Response, e error) {
@@ -73,8 +98,8 @@ func GetColly(proxy string, scrapStatus string, requestCount int, responseBytes 
 	c.Limit(&colly.LimitRule{
 		DomainGlob:  "*",
 		Parallelism: 5,
-		Delay:       10 * time.Second,
-		// RandomDelay: 1 * time.Second,
+		Delay:       3 * time.Second,
+		RandomDelay: 1 * time.Second,
 	})
 
 	return c

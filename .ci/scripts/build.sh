@@ -14,4 +14,4 @@ go mod download
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build main.go
 
 echo -n "go-scrapper $(cat .git/ref)" >name
-echo -n "sha256sum main" >body
+echo -n "main digest: $(sha256sum main)" >body

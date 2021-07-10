@@ -257,10 +257,13 @@ func yelpSpiderRun(args, op, sval string) {
 	// Initialize variables
 	spider := &Spider{filename: op}
 	setPlace(args, spider)
+	var wg sync.WaitGroup
 	start_time = time.Now().UTC().Format("2006-01-02 15:04:05")
 
 	if spider.ProfileKey == "" {
-		callSearchURL(spider)
+		wg.Add(1)
+		callSearchURL(spider, &wg)
+		wg.Wait()
 	}
 
 	if len(spider.ProfileKey) > 0 {
@@ -283,11 +286,15 @@ func yelpSpiderRun(args, op, sval string) {
 		}
 
 		// Profile URL Call
-		callProfileURL(spider)
+		wg.Add(1) // add PROFILE call
+		callProfileURL(spider, &wg)
+		fmt.Println("Waiting...")
+		wg.Wait() // Wait for completing all calls
 
 		if len(spider.LastReviewHashes) > 0 {
-			callLastReviewURL(spider)
-
+			wg.Add(1)
+			callLastReviewURL(spider, &wg)
+			wg.Wait()
 		}
 
 		dumpReviews(spider.filename)
@@ -316,7 +323,7 @@ func yelpSpiderRun(args, op, sval string) {
 	}
 }
 
-func callSearchURL(spider *Spider) {
+func callSearchURL(spider *Spider, wg *sync.WaitGroup) {
 	search := collyfunc.GetColly(spider.Persona.Proxy, scrapStatus, requestCount, responseBytes)
 	search.OnError(func(r *colly.Response, e error) {
 		fmt.Println("Status ", r.StatusCode)
@@ -332,12 +339,11 @@ func callSearchURL(spider *Spider) {
 			}
 			if r.StatusCode == 0 {
 				if strings.Contains(e.Error(), "Client.Timeout") {
-					log.Println("search timeout")
 					scrapStatus = "TIMEOUT"
 				}
 			}
 			log.Println("error:", e, r.Request.URL, string(r.Body), r.StatusCode, retryCount)
-
+			wg.Done() // done PROFILE call [failed]
 		}
 	})
 	search.OnHTML(`html`, func(e *colly.HTMLElement) {
@@ -406,10 +412,10 @@ func callSearchURL(spider *Spider) {
 				Compare_targets: compare_targets,
 				Winner:          false,
 			}
-
-			matchService(spider, payload)
+			wg.Add(1)
+			matchService(spider, payload, wg)
 		}
-
+		wg.Done()
 	})
 
 	address := spider.Address.Street + " " + spider.Address.State + " " + spider.Address.City + " " + spider.Address.Zip
@@ -417,25 +423,24 @@ func callSearchURL(spider *Spider) {
 	nameOutput := url.QueryEscape(spider.BusinessName)
 	url := "https://www.yelp.com/search?find_desc=" + nameOutput + "&find_loc=" + addressOutput
 	search.Visit(url)
-	search.Wait()
 }
 
-func matchService(spider *Spider, payload MatchServicePayload) {
+func matchService(spider *Spider, payload MatchServicePayload, wg *sync.WaitGroup) {
 	match := colly.NewCollector()
-	// match := collyfunc.GetColly(spider.Persona.Proxy, scrapStatus, requestCount, responseBytes)
+	// match := collector.GetColly(spider.Persona.Proxy, scrapStatus,requestCount , responseBytes )
 	match.OnResponse(func(r *colly.Response) {
 		data := &MatchServiceResponse{}
 		err := json.Unmarshal(r.Body, data)
 		utils.CheckError(err, scrapStatus)
 		result := data.Compare_targets[data.Winner]
 		spider.ProfileKey = "https://www.yelp.com" + result.Url
-
+		wg.Done()
 	})
 
 	match.OnError(func(r *colly.Response, e error) {
 		fmt.Println("Status ", r.StatusCode)
 		fmt.Println("error:", e, r.Request.URL, string(r.Body), r.StatusCode)
-
+		wg.Done()
 	})
 
 	match.OnRequest(func(r *colly.Request) {
@@ -452,13 +457,11 @@ func matchService(spider *Spider, payload MatchServicePayload) {
 	// }
 
 	// matchUrl := os.Getenv("MATCH_SERVICE_URL")
-
 	match.PostRaw("http://business-matching.asyncro/match", reqBodyBytes.Bytes())
 	// match.PostRaw("http://127.0.0.1:9999/match", reqBodyBytes.Bytes())
-	match.Wait()
 }
 
-func callProfileURL(spider *Spider) {
+func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 	profile := collyfunc.GetColly(spider.Persona.Proxy, scrapStatus, requestCount, responseBytes)
 	profile.OnError(func(r *colly.Response, e error) {
 		fmt.Println("Status ", r.StatusCode)
@@ -473,10 +476,10 @@ func callProfileURL(spider *Spider) {
 				scrapStatus = "SCRAPE_FAILED"
 			}
 			if r.StatusCode == 0 {
-				log.Println("timeout in profile call", Profile_key)
 				scrapStatus = "TIMEOUT"
 			}
 			log.Println("error:", e, r.Request.URL, string(r.Body), r.StatusCode, retryCount)
+			wg.Done() // done PROFILE call [failed]
 		}
 	})
 	profile.OnHTML(`html`, func(e *colly.HTMLElement) {
@@ -500,6 +503,7 @@ func callProfileURL(spider *Spider) {
 				fmt.Println("Retry Request- ", e.Request.URL)
 				e.Request.Retry()
 			} else {
+				wg.Done() // done PROFILE call
 				fmt.Println("Format Changed")
 				scrapStatus = "PAGE_FORMAT_CHANGE"
 				return
@@ -512,7 +516,16 @@ func callProfileURL(spider *Spider) {
 			// Collecting Histogram
 			// ===================================
 			if len(e.ChildTexts("script:contains(aggregateRating)")) > 0 {
-				get_histogram(e.ChildTexts("script:contains(aggregateRating)")[0])
+				aggregateRating_string := e.ChildTexts("script:contains(aggregateRating)")[0]
+				data := HistogramFormat{}
+				err := json.Unmarshal([]byte(aggregateRating_string), &data)
+				utils.CheckError(err, scrapStatus)
+				histogram.Primary = Primary{
+					Score:         data.AggregateRating.RatingValue,
+					Total_reviews: data.AggregateRating.ReviewCount,
+				}
+				fmt.Println("Histogram:", histogram)
+
 			}
 
 			// ===================================
@@ -535,20 +548,21 @@ func callProfileURL(spider *Spider) {
 				minimal_review_count = reviewCount
 				normal_review_count = reviewCount
 				// Call all pages.
-				var reviewCollector = normalReview(spider)
+				var reviewCollector = normalReview(spider, wg)
 
 				if len(spider.LastReviewHashes) > 0 {
 					loop_start = 0
 					loop_end = 50
-					callNormalReviewLastReviewURL(spider)
+					wg.Add(1)
+					callNormalReviewLastReviewURL(spider, wg)
 				} else if spider.FirstPageOnly == 1 {
-					reviewCollector.Visit(e.Request.AbsoluteURL(RevUrl + "&start=" + strconv.Itoa(0)))
-					reviewCollector.Wait()
+					wg.Add(1) // add REVIEW call
+					reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(0))
 				} else {
 					for i := 0; i < reviewCount; i += 10 {
-						reviewCollector.Visit(e.Request.AbsoluteURL(RevUrl + "&start=" + strconv.Itoa(i)))
+						wg.Add(1) // add REVIEW call
+						reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(i))
 					}
-					reviewCollector.Wait()
 				}
 			}
 
@@ -564,66 +578,72 @@ func callProfileURL(spider *Spider) {
 
 			nonRevURL := e.Request.URL.ResolveReference(nonUrl)
 
-			// First visit to non recommanded URL
-			log.Println("calling not recommeded reviews.", Profile_key)
-			nonRecommandedReviewUrlCall(spider, nonRevURL.String())
+			wg.Add(1) // add NON_RECOMMENDED_ONCE call
 
+			// Fist visit to non recommanded URL
+			nonRecommandedReviewUrlCall(spider, wg, nonRevURL.String())
+
+			wg.Done() // done PROFILE call [success]
 		}
 	})
 
 	profile.Visit(Profile_key)
-	profile.Wait()
 }
 
-func callNormalReviewLastReviewURL(spider *Spider) {
+func callNormalReviewLastReviewURL(spider *Spider, wg *sync.WaitGroup) {
 	// Prepare URL
 	RevUrl := "https://www.yelp.com/biz/" + business_id + "/review_feed?rl=en&sort_by=date_desc"
-	var reviewCollector = normalReview(spider)
+	var reviewCollector = normalReview(spider, wg)
 	for loop_start < loop_end {
+		wg.Add(1) // add REVIEW call
 		reviewCollector.Visit(RevUrl + "&start=" + strconv.Itoa(loop_start))
 		loop_start += 10
 	}
-	reviewCollector.Wait()
+	wg.Done()
 }
 
-func callLastReviewURL(spider *Spider) {
+func callLastReviewURL(spider *Spider, wg *sync.WaitGroup) {
 	if len(reviews) > 0 {
+		wg.Done()
 		CheckLastReviewHash(spider)
 		for last_review_hash != true && (loop_end < normal_review_count || non_loop_end < non_review_count) {
 			if loop_end < normal_review_count {
 				loop_start = loop_end
 				loop_end += 50
-				callNormalReviewLastReviewURL(spider)
-
+				wg.Add(1)
+				callNormalReviewLastReviewURL(spider, wg)
+				wg.Wait()
 			}
 
 			if non_loop_end < non_review_count {
 				non_loop_start = non_loop_end
 				non_loop_end += 50
-				callNonRecommandedLastReviewURL(spider)
-
+				wg.Add(1)
+				callNonRecommandedLastReviewURL(spider, wg)
+				wg.Wait()
 			}
 
-			callLastReviewURL(spider)
-
+			wg.Add(1)
+			callLastReviewURL(spider, wg)
+			wg.Wait()
 		}
 	} else {
-		return
+		wg.Done()
 	}
 }
 
-func callNonRecommandedLastReviewURL(spider *Spider) {
+func callNonRecommandedLastReviewURL(spider *Spider, wg *sync.WaitGroup) {
 	// Prepare URL
-	nonRecommandedCollector := nonRecommandedReviewUrlCallFollowup(spider)
+	nonRecommandedCollector := nonRecommandedReviewUrlCallFollowup(spider, wg)
 	for non_loop_start < non_loop_end {
+		wg.Add(1) // add REVIEW call
 		nonRecommandedCollector.Visit(nonRecommandedUrl + "?not_recommended_start=" + strconv.Itoa(non_loop_start))
 		non_loop_start += 10
 	}
-	nonRecommandedCollector.Wait()
-
+	wg.Done()
 }
 
-func normalReview(spider *Spider) *colly.Collector {
+func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 	linkCall := collyfunc.GetColly(spider.Persona.Proxy, scrapStatus, requestCount, responseBytes)
 	linkCall.OnError(func(r *colly.Response, e error) {
 		if retryRequest(r.Request.URL.String()) {
@@ -633,6 +653,7 @@ func normalReview(spider *Spider) *colly.Collector {
 			log.Println("error:", e, r.Request.URL, string(r.Body))
 			ilink := r.Request.URL.String()
 			fmt.Println("URL Error:", ilink)
+			wg.Done() // done REVIEW call [failed]
 		}
 	})
 	linkCall.OnResponse(func(r *colly.Response) {
@@ -707,11 +728,12 @@ func normalReview(spider *Spider) *colly.Collector {
 			rev_counter += 1
 		}
 		fmt.Println("Count", (rev_counter + non_counter))
+		wg.Done() // done REVIEW call [success]
 	})
 	return linkCall
 }
 
-func nonRecommandedReviewUrlCall(spider *Spider, link string) {
+func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string) {
 	linkCall := collyfunc.GetColly(spider.Persona.Proxy, scrapStatus, requestCount, responseBytes)
 	linkCall.OnError(func(r *colly.Response, e error) {
 		if retryRequest(r.Request.URL.String()) {
@@ -726,11 +748,11 @@ func nonRecommandedReviewUrlCall(spider *Spider, link string) {
 					scrapStatus = "SCRAPE_FAILED"
 				}
 				if r.StatusCode == 0 {
-					log.Println("timeout in non recommandedreview", link)
 					scrapStatus = "TIMEOUT"
 				}
 			}
 			log.Println("error:", e, r.Request.URL, string(r.Body))
+			wg.Done() // done NON_RECOMMENDED_ONCE call [failed]
 		}
 	})
 	linkCall.OnHTML(`html`, func(e *colly.HTMLElement) {
@@ -747,6 +769,7 @@ func nonRecommandedReviewUrlCall(spider *Spider, link string) {
 					}
 					non_review_count = count
 					if count == 0 {
+						wg.Done() // done NON_RECOMMENDED_ONCE call [success - without reviews]
 						fmt.Println("No review")
 						scrapStatus = "NO_REVIEWS"
 						return
@@ -758,29 +781,29 @@ func nonRecommandedReviewUrlCall(spider *Spider, link string) {
 		fmt.Println("Non recommanded Reviews", non_review_count)
 		minimal_review_count = non_review_count
 		nonRecommandedUrl = e.Request.URL.String()
-		nonRecommandedCollector := nonRecommandedReviewUrlCallFollowup(spider)
+		nonRecommandedCollector := nonRecommandedReviewUrlCallFollowup(spider, wg)
 		if len(spider.LastReviewHashes) > 0 {
 			non_loop_start = 0
 			non_loop_end = 50
-			callNonRecommandedLastReviewURL(spider)
+			wg.Add(1)
+			callNonRecommandedLastReviewURL(spider, wg)
 		} else if spider.FirstPageOnly == 1 {
+			wg.Add(1) // add NON_RECOMMENDED_REV call
 			visitingUrl := e.Request.URL.String() + "?not_recommended_start=" + strconv.Itoa(0)
 			nonRecommandedCollector.Visit(visitingUrl)
-			nonRecommandedCollector.Wait()
 		} else {
 			for i := 0; i < non_review_count; i += 10 {
+				wg.Add(1) // add NON_RECOMMENDED_REV call
 				visitingUrl := e.Request.URL.String() + "?not_recommended_start=" + strconv.Itoa(i)
 				nonRecommandedCollector.Visit(visitingUrl)
 			}
-			nonRecommandedCollector.Wait()
 		}
-
+		wg.Done() // done NON_RECOMMENDED_ONCE call [success]
 	})
 	linkCall.Visit(link)
-	linkCall.Wait()
 }
 
-func nonRecommandedReviewUrlCallFollowup(spider *Spider) *colly.Collector {
+func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 	linkCall := collyfunc.GetColly(spider.Persona.Proxy, scrapStatus, requestCount, responseBytes)
 	linkCall.OnError(func(r *colly.Response, e error) {
 		if retryRequest(r.Request.URL.String()) {
@@ -788,9 +811,13 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider) *colly.Collector {
 			r.Request.Retry()
 		} else {
 			log.Println("error:", e, r.Request.URL, string(r.Body))
+			wg.Done() // done NON_RECOMMENDED_REV call [failed]
 		}
 	})
 	linkCall.OnHTML(`html`, func(e *colly.HTMLElement) {
+		nonReviewCount := len(e.ChildTexts(`div.not-recommended-reviews > ul.reviews > li`))
+		wg.Add(nonReviewCount) // add NON_REV_COUNT call
+		wg.Done()              // done NON_RECOMMENDED_REV call [sucecss]
 		fmt.Println("Count", (rev_counter + non_counter))
 	})
 	linkCall.OnHTML(`div.not-recommended-reviews > ul.reviews > li`, func(e *colly.HTMLElement) {
@@ -888,6 +915,7 @@ func nonRecommandedReviewUrlCallFollowup(spider *Spider) *colly.Collector {
 		safeReviewAdd(review)
 		// reviews = append(reviews, review)
 		non_counter += 1
+		wg.Done() // done NON_REV_COUNT call [success]
 	})
 	return linkCall
 }
@@ -1055,15 +1083,4 @@ func retryRequest(url string) bool {
 		mu.Unlock()
 		return true
 	}
-}
-
-func get_histogram(aggregateRating_string string) {
-	data := HistogramFormat{}
-	err := json.Unmarshal([]byte(aggregateRating_string), &data)
-	utils.CheckError(err, scrapStatus)
-	histogram.Primary = Primary{
-		Score:         data.AggregateRating.RatingValue,
-		Total_reviews: data.AggregateRating.ReviewCount,
-	}
-	fmt.Println("Histogram:", histogram)
 }

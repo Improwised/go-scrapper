@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"go-yelp-with-proxy/utils"
-	"math/rand"
 	"net/http"
 	"net/url"
 	"strings"
@@ -13,28 +12,6 @@ import (
 
 	"github.com/gocolly/colly/v2"
 )
-
-var YELP_USER_AGENT_STRING = []string{
-	"AdsBot-Google",
-	"Applebot",
-	"BingPreview",
-	"DeepCrawl",
-	"Googlebot",
-	"Googlebot-Image",
-	"Googlebot-Mobile",
-	"Mediapartners-Google",
-	"STC-bot",
-	"ScoutJet",
-	"SearchmetricsBot",
-	"SeznamBot",
-	"TelegramBot",
-	"Twitterbot",
-	"Yahoo! Slurp",
-	"Yandex",
-	"archive.org_bot",
-	"ia_archiver",
-	"msnbot",
-}
 
 func getFromProxy(proxy, key string) string {
 	proxyDetail := strings.Split(proxy, "@")
@@ -71,7 +48,7 @@ func GetColly(proxy string, scrapStatus string, requestCount int, responseBytes 
 	// pass transport to collector
 	c.WithTransport(transport)
 
-	c.SetRequestTimeout(30 * time.Second)
+	c.SetRequestTimeout(100 * time.Second)
 
 	c.OnRequest(func(r *colly.Request) {
 		requestCount += 1
@@ -82,7 +59,7 @@ func GetColly(proxy string, scrapStatus string, requestCount int, responseBytes 
 		r.Headers.Set("X-Crawlera-Profile", "desktop")
 		r.Headers.Set("upgrade-insecure-requests", "1")
 		r.Headers.Set("Connection", "keep-alive")
-		r.Headers.Set("User-Agent", YELP_USER_AGENT_STRING[rand.Intn(len(YELP_USER_AGENT_STRING))])
+		r.Headers.Set("User-Agent", "Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, 	like Gecko) Chrome/32.0.1700.72 Safari/537.36")
 		r.Headers.Set("authority", "www.yelp.com")
 	})
 

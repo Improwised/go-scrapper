@@ -473,8 +473,8 @@ func matchService(spider *Spider, payload MatchServicePayload, wg *sync.WaitGrou
 	// }
 
 	// matchUrl := os.Getenv("MATCH_SERVICE_URL")
-	// match.PostRaw("http://business-matching.asyncro/match", reqBodyBytes.Bytes())
-	match.PostRaw("http://127.0.0.1:9999/match", reqBodyBytes.Bytes())
+	match.PostRaw("http://business-matching.asyncro/match", reqBodyBytes.Bytes())
+	// match.PostRaw("http://127.0.0.1:9999/match", reqBodyBytes.Bytes())
 }
 
 func callProfileURL(spider *Spider, wg *sync.WaitGroup) {

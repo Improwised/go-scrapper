@@ -219,22 +219,6 @@ func setPlace(args string, sp *Spider) {
 	}
 }
 
-func getFromProxy(proxy, key string) string {
-	proxyDetail := strings.Split(proxy, "@")
-	accessKey, proxyUrl := proxyDetail[0], proxyDetail[1]
-
-	ans := ""
-	switch key {
-	case "url":
-		ans = "http://" + proxyUrl
-		break
-	case "key":
-		ans = accessKey
-		break
-	}
-	return ans
-}
-
 var (
 	reviews              []ReviewFomate
 	histogram            Histogram

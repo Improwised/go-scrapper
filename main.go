@@ -484,20 +484,24 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 	})
 	profile.OnHTML(`html`, func(e *colly.HTMLElement) {
 		fmt.Println("Response - ", e.Request.URL.String())
-
 		// Collect Business ID
-		business_id = strings.Split(e.ChildAttr("meta[name=\"yelp-biz-id\"]", "content"), "\n")[0]
+		if len(e.ChildAttr("meta[name=\"yelp-biz-id\"]", "content")) > 0 {
+			business_id = strings.Split(e.ChildAttr("meta[name=\"yelp-biz-id\"]", "content"), "\n")[0]
+		}
 		if len(business_id) == 0 {
 			if len(e.ChildTexts("script:contains(business_id)")) > 0 {
 				business_id_string := e.ChildTexts("script:contains(business_id)")[0]
 				re, _ := regexp.Compile("\"business_id\":([^],].)+")
 				match := re.FindStringSubmatch(business_id_string)
-				match_group := strings.Split(match[0], ",")[1]
-				replace_string := regexp.MustCompile("\"|]")
-				business_id = replace_string.ReplaceAllString(match_group, "")
+				if strings.Contains(match[0], ",") {
+					match_group := strings.Split(match[0], ",")[1]
+					replace_string := regexp.MustCompile("\"|]")
+					business_id = replace_string.ReplaceAllString(match_group, "")
+				}
 
 			}
 		}
+
 		if len(business_id) == 0 {
 			if retryRequest(e.Request.URL.String()) {
 				fmt.Println("Retry Request- ", e.Request.URL)
@@ -1070,7 +1074,7 @@ func retryRequest(url string) bool {
 	urlHash := hex.EncodeToString(h.Sum(nil))
 	mu.Lock()
 	if val, ok := retryCount[urlHash]; ok {
-		if val < 5 {
+		if val < 3 {
 			val += 1
 			retryCount[urlHash] = val
 			mu.Unlock()

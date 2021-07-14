@@ -74,7 +74,7 @@ func GetColly(proxy string, scrapStatus string, requestCount int, responseBytes 
 
 	c.Limit(&colly.LimitRule{
 		DomainGlob:  "*",
-		Parallelism: 10,
+		Parallelism: 7,
 		Delay:       3 * time.Second,
 		RandomDelay: 2 * time.Second,
 	})

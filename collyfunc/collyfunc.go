@@ -48,7 +48,7 @@ func GetColly(proxy string, scrapStatus string, requestCount int, responseBytes 
 	// pass transport to collector
 	c.WithTransport(transport)
 
-	c.SetRequestTimeout(100 * time.Second)
+	c.SetRequestTimeout(60 * time.Second)
 
 	c.OnRequest(func(r *colly.Request) {
 		requestCount += 1
@@ -74,9 +74,9 @@ func GetColly(proxy string, scrapStatus string, requestCount int, responseBytes 
 
 	c.Limit(&colly.LimitRule{
 		DomainGlob:  "*",
-		Parallelism: 5,
+		Parallelism: 7,
 		Delay:       3 * time.Second,
-		RandomDelay: 1 * time.Second,
+		RandomDelay: 2 * time.Second,
 	})
 
 	return c

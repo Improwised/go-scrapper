@@ -13,6 +13,8 @@ import (
 	"github.com/gocolly/colly/v2"
 )
 
+var cookies []*http.Cookie
+
 func getFromProxy(proxy, key string) string {
 	proxyDetail := strings.Split(proxy, "@")
 	accessKey, proxyUrl := proxyDetail[0], proxyDetail[1]
@@ -60,7 +62,12 @@ func GetColly(proxy string, scrapStatus string, requestCount int, responseBytes 
 		r.Headers.Set("upgrade-insecure-requests", "1")
 		r.Headers.Set("Connection", "keep-alive")
 		r.Headers.Set("User-Agent", "Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, 	like Gecko) Chrome/32.0.1700.72 Safari/537.36")
-		r.Headers.Set("authority", "www.yelp.com")
+		r.Headers.Set("x-requested-by-react", "true")
+		r.Headers.Set("x-requested-with", "XMLHttpRequest")
+		if cookies != nil {
+			c.SetCookies(r.URL.String(), cookies)
+		}
+
 	})
 
 	c.OnError(func(r *colly.Response, e error) {
@@ -70,6 +77,7 @@ func GetColly(proxy string, scrapStatus string, requestCount int, responseBytes 
 
 	c.OnResponse(func(r *colly.Response) {
 		responseBytes += len(r.Body)
+		cookies = c.Cookies(r.Request.URL.String())
 	})
 
 	c.Limit(&colly.LimitRule{

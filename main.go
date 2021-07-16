@@ -283,6 +283,11 @@ func yelpSpiderRun(args, op, sval string) {
 				u.Host = "www.yelp.com"
 			}
 			Profile_key = u.String()
+			if strings.Contains(Profile_key, "search?") {
+				scrapStatus = "NO_BUSINESS_PAGE"
+				fmt.Println("Scrapping - ", scrapStatus)
+				return
+			}
 		}
 
 		// Profile URL Call
@@ -339,7 +344,8 @@ func callSearchURL(spider *Spider, wg *sync.WaitGroup) {
 			}
 			if r.StatusCode == 0 {
 				if strings.Contains(e.Error(), "Client.Timeout") {
-					scrapStatus = "TIMEOUT"
+					scrapStatus = e.Error()
+					// scrapStatus = "TIMEOUT"
 				}
 			}
 			log.Println("error:", e, r.Request.URL, string(r.Body), r.StatusCode, retryCount)
@@ -476,7 +482,7 @@ func callProfileURL(spider *Spider, wg *sync.WaitGroup) {
 				scrapStatus = "SCRAPE_FAILED"
 			}
 			if r.StatusCode == 0 {
-				scrapStatus = "TIMEOUT"
+				scrapStatus = e.Error()
 			}
 			log.Println("error:", e, r.Request.URL, string(r.Body), r.StatusCode, retryCount)
 			wg.Done() // done PROFILE call [failed]
@@ -752,7 +758,8 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
 					scrapStatus = "SCRAPE_FAILED"
 				}
 				if r.StatusCode == 0 {
-					scrapStatus = "TIMEOUT"
+					scrapStatus = e.Error()
+					// scrapStatus = "TIMEOUT"
 				}
 			}
 			log.Println("error:", e, r.Request.URL, string(r.Body))

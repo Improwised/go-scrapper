@@ -33,6 +33,63 @@ func getFromProxy(proxy, key string) string {
 func GetColly(proxy string, scrapStatus string, requestCount int, responseBytes int) *colly.Collector {
 	c := colly.NewCollector(
 		colly.AllowedDomains("yelp.com", "www.yelp.com"),
+	)
+	proxyUrl := getFromProxy(proxy, "url")
+	proxyURL, err := url.Parse(proxyUrl)
+	utils.CheckError(err, scrapStatus)
+
+	// create transport for set proxy and certificate
+	transport := &http.Transport{
+		Proxy: http.ProxyURL(proxyURL),
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	}
+
+	// pass transport to collector
+	c.WithTransport(transport)
+
+	c.SetRequestTimeout(60 * time.Second)
+
+	c.OnRequest(func(r *colly.Request) {
+		requestCount += 1
+		fmt.Println("Visit - ", r.URL)
+		authKey := getFromProxy(proxy, "key")
+		basic := "Basic " + base64.StdEncoding.EncodeToString([]byte(authKey))
+		r.Headers.Set("Proxy-Authorization", basic)
+		r.Headers.Set("X-Crawlera-Profile", "desktop")
+		r.Headers.Set("upgrade-insecure-requests", "1")
+		r.Headers.Set("Connection", "keep-alive")
+		r.Headers.Set("User-Agent", "Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, 	like Gecko) Chrome/32.0.1700.72 Safari/537.36")
+		if cookies != nil {
+			c.SetCookies(r.URL.String(), cookies)
+		}
+
+	})
+
+	c.OnError(func(r *colly.Response, e error) {
+		responseBytes += len(r.Body)
+		fmt.Println("=========>", r.StatusCode)
+	})
+
+	c.OnResponse(func(r *colly.Response) {
+		responseBytes += len(r.Body)
+		cookies = c.Cookies(r.Request.URL.String())
+	})
+
+	// c.Limit(&colly.LimitRule{
+	// 	DomainGlob:  "*",
+	// 	Parallelism: 10,
+	// 	Delay:       3 * time.Second,
+	// 	RandomDelay: 3 * time.Second,
+	// })
+
+	return c
+}
+
+func GetReviewColly(proxy string, scrapStatus string, requestCount int, responseBytes int) *colly.Collector {
+	c := colly.NewCollector(
+		colly.AllowedDomains("yelp.com", "www.yelp.com"),
 		colly.Async(true),
 	)
 	proxyUrl := getFromProxy(proxy, "url")

@@ -283,7 +283,7 @@ func yelpSpiderRun(args, op, sval string) {
 				u.Host = "www.yelp.com"
 			}
 			Profile_key = u.String()
-			if strings.Contains(Profile_key, "search?") {
+			if strings.Contains(Profile_key, "search?") || strings.Contains(Profile_key, "?ad_business_id=") {
 				scrapStatus = "NO_BUSINESS_PAGE"
 				fmt.Println("Scrapping - ", scrapStatus)
 				return
@@ -654,12 +654,14 @@ func callNonRecommandedLastReviewURL(spider *Spider, wg *sync.WaitGroup) {
 }
 
 func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
-	linkCall := collyfunc.GetColly(spider.Persona.Proxy, scrapStatus, requestCount, responseBytes)
+	linkCall := collyfunc.GetReviewColly(spider.Persona.Proxy, scrapStatus, requestCount, responseBytes)
 	linkCall.OnError(func(r *colly.Response, e error) {
 		if retryRequest(r.Request.URL.String()) {
+			log.Println("statuscode", r.StatusCode)
 			fmt.Println("Retry Request- ", r.Request.URL)
 			r.Request.Retry()
 		} else {
+
 			log.Println("error:", e, r.Request.URL, string(r.Body))
 			ilink := r.Request.URL.String()
 			fmt.Println("URL Error:", ilink)
@@ -744,7 +746,7 @@ func normalReview(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
 }
 
 func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string) {
-	linkCall := collyfunc.GetColly(spider.Persona.Proxy, scrapStatus, requestCount, responseBytes)
+	linkCall := collyfunc.GetReviewColly(spider.Persona.Proxy, scrapStatus, requestCount, responseBytes)
 	linkCall.OnError(func(r *colly.Response, e error) {
 		if retryRequest(r.Request.URL.String()) {
 			fmt.Println("Retry Request- ", r.Request.URL)
@@ -815,7 +817,7 @@ func nonRecommandedReviewUrlCall(spider *Spider, wg *sync.WaitGroup, link string
 }
 
 func nonRecommandedReviewUrlCallFollowup(spider *Spider, wg *sync.WaitGroup) *colly.Collector {
-	linkCall := collyfunc.GetColly(spider.Persona.Proxy, scrapStatus, requestCount, responseBytes)
+	linkCall := collyfunc.GetReviewColly(spider.Persona.Proxy, scrapStatus, requestCount, responseBytes)
 	linkCall.OnError(func(r *colly.Response, e error) {
 		if retryRequest(r.Request.URL.String()) {
 			fmt.Println("Retry Request- ", r.Request.URL)

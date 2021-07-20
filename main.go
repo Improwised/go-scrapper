@@ -283,7 +283,7 @@ func yelpSpiderRun(args, op, sval string) {
 				u.Host = "www.yelp.com"
 			}
 			Profile_key = u.String()
-			if strings.Contains(Profile_key, "search?") || strings.Contains(Profile_key, "?ad_business_id=") {
+			if strings.Contains(Profile_key, "search?") || strings.Contains(Profile_key, "adredir?") {
 				scrapStatus = "NO_BUSINESS_PAGE"
 				fmt.Println("Scrapping - ", scrapStatus)
 				return
